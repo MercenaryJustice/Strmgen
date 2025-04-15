@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<Container>
+  <Name>strmgen</Name>
+  <Repository>mitch91175/strmgen:latest</Repository>
+  <Registry>docker.io</Registry>
+  <Tag>latest</Tag>
+  <Network>bridge</Network>
+  <MyIP>0.0.0.0</MyIP>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/mitch91175/Strmgen</Support>
+  <Project>Strmgen</Project>
+  <Overview>Generates .strm and .nfo files for Plex/Kodi based on Dispatcharr streams</Overview>
+  <Config Name="API_BASE" Target="API_BASE" Default="http://192.168.86.33:9191" Mode="" Description="Base URL for your backend API" Type="Variable" Display="always" Required="false" Mask="false">"http://192.168.86.33:9191"</Config>
+  <Config Name="TOKEN_URL" Target="TOKEN_URL" Default="/api/accounts/token/" Mode="" Description="Endpoint for obtaining auth tokens" Type="Variable" Display="always" Required="false" Mask="false">/api/accounts/token/</Config>
+  <Config Name="USERNAME" Target="USERNAME" Default="" Mode="" Description="API username" Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="PASSWORD" Target="PASSWORD" Default="" Mode="" Description="API password" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="STREAM_BASE_URL" Target="STREAM_BASE_URL" Default="/proxy/ts/stream/" Mode="" Description="Path prefix for TS stream proxy" Type="Variable" Display="always" Required="false" Mask="false">/proxy/ts/stream/</Config>
+  <Config Name="SKIP_STREAM_CHECK" Target="SKIP_STREAM_CHECK" Default="true" Mode="" Description="Skip validating existing stream URLs" Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+  <Config Name="UPDATE_STREAM_LINK" Target="UPDATE_STREAM_LINK" Default="false" Mode="" Description="Force-refresh stream links each run" Type="Variable" Display="always" Required="false" Mask="false">false</Config>
+  <Config Name="ONLY_UPDATED_STREAMS" Target="ONLY_UPDATED_STREAMS" Default="false" Mode="" Description="Process only streams updated today" Type="Variable" Display="always" Required="false" Mask="false">false</Config>
+  <Config Name="OUTPUT_ROOT" Target="OUTPUT_ROOT" Default="/output" Mode="" Description="Root folder for generated files" Type="Variable" Display="always" Required="false" Mask="false">/output</Config>
+  <Config Name="CLEAN_OUTPUT_DIR" Target="CLEAN_OUTPUT_DIR" Default="false" Mode="" Description="Wipe and recreate output folder on startup" Type="Variable" Display="always" Required="false" Mask="false">false</Config>
+  <Config Name="PROCESS_MOVIES_GROUPS" Target="PROCESS_MOVIES_GROUPS" Default="true" Mode="" Description="Enable processing of movie groups" Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+  <Config Name="MOVIES_GROUPS" Target="MOVIES_GROUPS" Default="[]" Mode="" Description="Glob patterns for movie groups" Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="PROCESS_TV_SERIES_GROUPS" Target="PROCESS_TV_SERIES_GROUPS" Default="true" Mode="" Description="Enable processing of TV series groups" Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+  <Config Name="TV_SERIES_GROUPS" Target="TV_SERIES_GROUPS" Default="[]" Mode="" Description="Glob patterns for TV series groups" Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="PROCESS_GROUPS_24_7" Target="PROCESS_GROUPS_24_7" Default="false" Mode="" Description="Enable processing of 24/7 groups" Type="Variable" Display="always" Required="false" Mask="false">false</Config>
+  <Config Name="GROUPS_24_7" Target="GROUPS_24_7" Default="[]" Mode="" Description="Glob patterns for 24/7 groups" Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="REMOVE_STRINGS" Target="REMOVE_STRINGS" Default="[]" Mode="" Description="Substrings to strip from titles" Type="Variable" Display="always" Required="false" Mask="false">[]</Config>
+  <Config Name="ACCESS" Target="ACCESS" Default="" Mode="" Description="Access token, populated at runtime" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="REFRESH" Target="REFRESH" Default="" Mode="" Description="Refresh token, populated at runtime" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="TMDB_API_KEY" Target="TMDB_API_KEY" Default="" Mode="" Description="Your TMDb API key" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="TMDB_LANGUAGE" Target="TMDB_LANGUAGE" Default="en-US" Mode="" Description="Language code for TMDb queries" Type="Variable" Display="always" Required="false" Mask="false">en-US</Config>
+  <Config Name="TMDB_IMAGE_SIZE" Target="TMDB_IMAGE_SIZE" Default="original" Mode="" Description="Size of TMDb images to fetch" Type="Variable" Display="always" Required="false" Mask="false">original</Config>
+  <Config Name="TMDB_DOWNLOAD_IMAGES" Target="TMDB_DOWNLOAD_IMAGES" Default="true" Mode="" Description="Download poster and fanart images" Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+  <Config Name="TMDB_CREATE_NOT_FOUND" Target="TMDB_CREATE_NOT_FOUND" Default="false" Mode="" Description="Create placeholder if TMDb entry not found" Type="Variable" Display="always" Required="false" Mask="false">false</Config>
+  <Config Name="CHECK_TMDB_THRESHOLDS" Target="CHECK_TMDB_THRESHOLDS" Default="true" Mode="" Description="Apply rating/vote/popularity filters" Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+  <Config Name="MINIMUM_YEAR" Target="MINIMUM_YEAR" Default="1994" Mode="" Description="Earliest release year to allow" Type="Variable" Display="always" Required="false" Mask="false">1994</Config>
+  <Config Name="MINIMUM_TMDB_RATING" Target="MINIMUM_TMDB_RATING" Default="2" Mode="" Description="Minimum TMDb rating to accept" Type="Variable" Display="always" Required="false" Mask="false">2</Config>
+  <Config Name="MINIMUM_TMDB_VOTES" Target="MINIMUM_TMDB_VOTES" Default="1" Mode="" Description="Minimum TMDb vote count to accept" Type="Variable" Display="always" Required="false" Mask="false">1</Config>
+  <Config Name="MINIMUM_TMDB_POPULARITY" Target="MINIMUM_TMDB_POPULARITY" Default="10.0" Mode="" Description="Minimum TMDb popularity to accept" Type="Variable" Display="always" Required="false" Mask="false">10.0</Config>
+  <Config Name="WRITE_NFO" Target="WRITE_NFO" Default="true" Mode="" Description="Generate .nfo files alongside .strm" Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+  <Config Name="WRITE_NFO_ONLY_IF_NOT_EXISTS" Target="WRITE_NFO_ONLY_IF_NOT_EXISTS" Default="true" Mode="" Description="Skip writing .nfo if already present" Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+  <Config Name="OPENSUBTITLES_DOWNLOAD" Target="OPENSUBTITLES_DOWNLOAD" Default="false" Mode="" Description="Enable downloading subtitles via OpenSubtitles" Type="Variable" Display="always" Required="false" Mask="false">false</Config>
+  <Config Name="OPENSUBTITLES_APP_NAME" Target="OPENSUBTITLES_APP_NAME" Default="" Mode="" Description="App name for OpenSubtitles API" Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="OPENSUBTITLES_API_KEY" Target="OPENSUBTITLES_API_KEY" Default="" Mode="" Description="OpenSubtitles API key" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="OPENSUBTITLES_USERNAME" Target="OPENSUBTITLES_USERNAME" Default="" Mode="" Description="OpenSubtitles account name" Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="OPENSUBTITLES_PASSWORD" Target="OPENSUBTITLES_PASSWORD" Default="" Mode="" Description="OpenSubtitles account password" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="SKIP_CACHE_PATH" Target="SKIP_CACHE_PATH" Default="skip_cache.json" Mode="" Description="Path to skip-cache JSON file" Type="Variable" Display="always" Required="false" Mask="false">skip_cache.json</Config>
+  <Config Name="Path: /output" Target="/app/logs" Default="" Mode="rw" Description="Directory for application logs inside container" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/data/media/vod</Config>
+</Container>

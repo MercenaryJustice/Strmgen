@@ -1,0 +1,17 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "Strmgen: Run main.py",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/strmgen/main.py",
+        "console": "integratedTerminal",
+        "justMyCode": true,
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUNBUFFERED": "1"
+        }
+      }
+    ]
+  }

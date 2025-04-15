@@ -1,0 +1,6 @@
+python-dotenv
+pydantic
+pydantic-settings
+requests
+opensubtitlescom
+jinja2

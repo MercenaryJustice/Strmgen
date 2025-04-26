@@ -10,7 +10,8 @@ from utils import clean_name, target_folder, write_if, write_movie_nfo, tmdb_mis
 from log import setup_logger
 
 logger = setup_logger(__name__)
-TITLE_YEAR_RE = re.compile(r"^(.+?)\s*\((\d{4})\)$")
+TITLE_YEAR_RE = re.compile(r"^(.*)\s(\d{4})$")
+print(TITLE_YEAR_RE)
 _skipped_movies = set()
 
 log_tag = "[MOVIE] 🖼️"
@@ -64,9 +65,15 @@ def process_movie(
         raw_title, raw_year = m.group(1), m.group(2)
         title = clean_name(raw_title)
         year = int(raw_year)
+
     else:
         title = clean_name(name)
         year = None
+
+
+    # 🧹 Clean any bad prefixes
+
+
     logger.info("[MOVIE] 🎬 Processing movie: %s", title)
 
     if title in _skipped_movies:

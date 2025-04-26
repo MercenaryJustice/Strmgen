@@ -152,7 +152,7 @@ def clean_name(name: str) -> str:
     """Sanitize and strip optional tokens from a name."""
     if settings.remove_strings:
         for token in settings.remove_strings:
-            name.replace(token, "")
+            name = name.replace(token, "")
     return re.sub(r'[<>:"/\\|?*]', "", name)
 
 # ─── TMDb Filtering ──────────────────────────────────────────────────────────

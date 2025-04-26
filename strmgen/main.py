@@ -45,6 +45,7 @@ def main():
             continue
 
         streams = fetch_streams_by_group_name(grp, headers)
+        logger.info("[STREAM] 📦 Found %d streams in group '%s'", len(streams), grp)
         for s in streams:
             stream = DispatcharrStream.from_dict(s)
 

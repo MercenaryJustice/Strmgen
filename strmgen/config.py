@@ -2,20 +2,19 @@ import os
 import json
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 
-# Load environment variables from .env (python-dotenv)
+# ─── 1) Load .env early ───────────────────────────────────────────────────────
 from dotenv import load_dotenv
 
-
-# ─── 1) Load .env early ───────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent
 DOTENV_PATH = BASE_DIR / ".env"
+
 if DOTENV_PATH.exists():
     load_dotenv(DOTENV_PATH, override=True)
 
-# ─── 2) Load JSON defaults ───────────────────────────────────────────────────
+# ─── 2) Load JSON config (if exists) ──────────────────────────────────────────
 def load_json_settings(path: Path) -> Dict[str, Any]:
     if path.exists():
         return json.loads(path.read_text(encoding="utf-8"))
@@ -24,7 +23,7 @@ def load_json_settings(path: Path) -> Dict[str, Any]:
 _json_cfg = load_json_settings(BASE_DIR / "config.json")
 
 
-# ─── 3) Define Settings (env-only) ────────────────────────────────────────────
+# ─── 3) Define Settings ───────────────────────────────────────────────────────
 class Settings(BaseSettings):
     # Authentication & API
     api_base:        str
@@ -83,11 +82,7 @@ class Settings(BaseSettings):
     tmdb_episode_cache: Dict = {}
     tmdb_movie_cache:   Dict = {}
 
-# ─── 4) Instantiate from ENV ─────────────────────────────────────────────────
-# This will pull values from os.environ (populated by load_dotenv above).
-settings = Settings()
+    model_config = SettingsConfigDict(extra="ignore")  # <-- Ignore extra fields if they sneak in
 
-# ─── 5) Overlay JSON defaults where ENV didn’t set anything ──────────────────
-for key, val in _json_cfg.items():
-    if getattr(settings, key, None) is None:
-        setattr(settings, key, val)
+# ─── 4) Instantiate Settings (ENV first, fallback to JSON) ────────────────────
+settings = Settings(**_json_cfg)

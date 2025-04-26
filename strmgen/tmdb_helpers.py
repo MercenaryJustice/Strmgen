@@ -92,6 +92,10 @@ class EpisodeMeta:
     raw: Dict
 
 TMDB_SESSION = requests.Session()
+TMDB_SESSION.headers.update({
+    "Authorization": f"Bearer {settings.tmdb_api_key}",
+    "Content-Type": "application/json;charset=utf-8"
+})
 DOWNLOAD_EXECUTOR = ThreadPoolExecutor(max_workers=8)
 
 _tmdb_show_cache = {}
@@ -100,7 +104,12 @@ _tmdb_episode_cache = {}
 _tmdb_movie_cache = {}
 
 def tmdb_get(endpoint: str, params: dict) -> dict:
-    params.update({"api_key": settings.tmdb_api_key, "language": settings.tmdb_language})
+    default_params = {
+        "language": settings.tmdb_language,
+        "include_adult": False,
+        "page": 1
+    }
+    params = {**default_params, **params}
     r = TMDB_SESSION.get(f"https://api.themoviedb.org/3{endpoint}", params=params, timeout=10)
     r.raise_for_status()
     return r.json()
@@ -134,6 +143,10 @@ def _raw_lookup_movie(title: str, year: int) -> Optional[dict]:
         logger.error("[TMDB] ❌ get_movie failed for '%s' (year=%s): %s", title, year, e)
         return None
 
+def remove_prefixes(title: str) -> str:
+    for bad in settings.remove_strings:
+        title = title.replace(bad, "").strip()
+    return title
 
 def get_movie(title: str, year: int) -> Optional[Movie]:
     """Fetch and cache TMDb movie metadata, returning a typed Movie."""
@@ -142,7 +155,7 @@ def get_movie(title: str, year: int) -> Optional[Movie]:
         return cached
     if settings.tmdb_api_key:
         logger.info("[TMDB] 🔍 Looking up movie: %s", title)
-        raw = _raw_lookup_movie(title, int)
+        raw = _raw_lookup_movie(title, year)
         if raw:
             movie = Movie(
                 id=raw.get("id", 0),

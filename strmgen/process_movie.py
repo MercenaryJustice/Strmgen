@@ -69,11 +69,6 @@ def process_movie(
     else:
         title = clean_name(name)
         year = None
-
-
-    # 🧹 Clean any bad prefixes
-
-
     logger.info("[MOVIE] 🎬 Processing movie: %s", title)
 
     if title in _skipped_movies:

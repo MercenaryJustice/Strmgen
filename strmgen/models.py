@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List
 from pathlib import Path
+from pydantic import BaseModel
 
 @dataclass
 class DispatcharrStream:
@@ -67,3 +68,18 @@ class DispatcharrStream:
             channel_group=data.get("channel_group", 0),
             stream_hash=data["stream_hash"],
         )
+
+class Stream(BaseModel):
+    id: int
+    name: str
+    url: str
+    m3u_account: int
+    logo_url: Optional[str]
+    tvg_id: Optional[str]
+    local_file: Optional[str]
+    current_viewers: int
+    updated_at: datetime
+    stream_profile_id: Optional[int]
+    is_custom: bool
+    channel_group: int
+    stream_hash: str

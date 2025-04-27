@@ -5,10 +5,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from difflib import SequenceMatcher
 from typing import Optional, Dict, List
-from config import settings
-from utils import clean_name
-from log import setup_logger
+from .config import settings
+from .utils import clean_name
+from .log import setup_logger
 logger = setup_logger(__name__)
+
+# cache of { genre_id → genre_name }
+_tv_genre_map: dict[int, str] = {}
 
 @dataclass
 class Movie:
@@ -54,6 +57,7 @@ class TVShow:
     adult: bool
     original_language: str
     genre_ids: List[int]
+    genre_names: List[str]
     popularity: float
     first_air_date: str
     vote_average: float
@@ -188,9 +192,9 @@ def download_if_missing(log_tag: str, label: str, path_val: Optional[str], dest:
     """Download an asset if it's missing, logging skip or download."""
     if not path_val:
         return
-    if dest.exists():
-        logger.info(f"{log_tag} Skipping %s (exists): %s", label, dest)
-    else:
+    if not dest.exists():
+    #     logger.info(f"{log_tag} Skipping %s (exists): %s", label, dest)
+    # else:
         logger.info(f"{log_tag} Downloading %s: %s", label, dest)
         download_image(path_val, dest)
 
@@ -226,36 +230,101 @@ def tmdb_lookup_tv_show(show: str) -> Optional[dict]:
 
 def lookup_show(show_name: str) -> Optional[TVShow]:
     """Fetch and cache TMDb show metadata, returning a typed TVShow."""
+    # 1) check the cache first
     cached = settings.tmdb_show_cache.get(show_name)
     if isinstance(cached, TVShow):
         return cached
-    if settings.tmdb_api_key:
-        logger.info("[TMDB] 🔍 Looking up show: %s", show_name)
-        raw = tmdb_lookup_tv_show(show_name)
-        if raw:
-            tv = TVShow(
-                id=raw.get("id"),
-                name=clean_name(raw.get("name", show_name)),
-                original_name=raw.get("original_name", ""),
-                overview=raw.get("overview", ""),
-                poster_path=raw.get("poster_path"),
-                backdrop_path=raw.get("backdrop_path"),
-                media_type=raw.get("media_type", ""),
-                adult=raw.get("adult", False),
-                original_language=raw.get("original_language", ""),
-                genre_ids=raw.get("genre_ids", []),
-                popularity=raw.get("popularity", 0.0),
-                first_air_date=raw.get("first_air_date", ""),
-                vote_average=raw.get("vote_average", 0.0),
-                vote_count=raw.get("vote_count", 0),
-                origin_country=raw.get("origin_country", []),
-                external_ids=raw.get("external_ids", {}),
-                raw=raw,
-            )
-            settings.tmdb_show_cache[show_name] = tv
-            return tv
-    return None
 
+    # 2) only hit TMDb if the key is present
+    if not settings.tmdb_api_key:
+        return None
+
+    logger.info("[TMDB] 🔍 Looking up show: %s", show_name)
+    raw = tmdb_lookup_tv_show(show_name)
+    if not raw:
+        return None
+
+    # 3) build our genre_names from the global _tv_genre_map cache
+    genre_ids = raw.get("genre_ids", [])
+    genre_names = [
+        _tv_genre_map[gid]
+        for gid in genre_ids
+        if gid in _tv_genre_map
+    ]
+
+    # 4) inject genre_names back into raw, so templates or other code can see them
+    raw["genre_names"] = genre_names
+
+    # 5) construct our TVShow dataclass
+    tv = TVShow(
+        id=raw.get("id"),
+        name=clean_name(raw.get("name", show_name)),
+        original_name=raw.get("original_name", ""),
+        overview=raw.get("overview", ""),
+        poster_path=raw.get("poster_path"),
+        backdrop_path=raw.get("backdrop_path"),
+        media_type=raw.get("media_type", ""),
+        adult=raw.get("adult", False),
+        original_language=raw.get("original_language", ""),
+        genre_ids=genre_ids,
+        genre_names=genre_names,
+        popularity=raw.get("popularity", 0.0),
+        first_air_date=raw.get("first_air_date", ""),
+        vote_average=raw.get("vote_average", 0.0),
+        vote_count=raw.get("vote_count", 0),
+        origin_country=raw.get("origin_country", []),
+        external_ids=raw.get("external_ids", {}),
+        raw=raw,
+    )
+
+    # cache and return
+    settings.tmdb_show_cache[show_name] = tv
+    return tv
+
+def _load_tv_genres() -> None:
+    """
+    Populate the _tv_genre_map cache by calling /genre/tv/list.
+    """
+    global _tv_genre_map
+    if _tv_genre_map:
+        return
+
+    url = "https://api.themoviedb.org/3/genre/tv/list"
+    params = {
+        "language": settings.tmdb_language,
+        "api_key": settings.tmdb_api_key
+    }
+    resp = requests.get(url, params=params, timeout=10)
+    resp.raise_for_status()
+    for g in resp.json().get("genres", []):
+        _tv_genre_map[g["id"]] = g["name"]
+
+
+# def get_tv_details(tv_id: int) -> dict:
+#     """
+#     Fetch detailed metadata for a TV show, including a list of genre names.
+#     """
+#     _load_tv_genres()
+
+#     url = f"https://api.themoviedb.org/3/tv/{tv_id}"
+#     params = {
+#         "language": settings.tmdb_language,
+#         "api_key": settings.tmdb_api_key
+#     }
+#     resp = requests.get(url, params=params, timeout=10)
+#     resp.raise_for_status()
+#     data = resp.json()
+
+#     # TMDb returns 'genres': [{id,name}, …]
+#     # But if you ever get only genre_ids, you can map them here instead.
+#     genre_names = []
+#     for g in data.get("genres", []):
+#         name = _tv_genre_map.get(g["id"])
+#         if name:
+#             genre_names.append(name)
+
+#     data["genre_names"] = genre_names
+#     return data
 
 def get_season_meta(show_id: int, season: int) -> Optional[SeasonMeta]:
     """Fetch and cache TMDb season metadata, returning a typed SeasonMeta."""

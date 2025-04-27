@@ -3,4 +3,8 @@ pydantic
 pydantic-settings
 requests
 opensubtitlescom
-jinja2
+fastapi>=0.100.0
+uvicorn[standard]>=0.22.0
+jinja2>=3.1.0
+python-multipart>=0.0.6        # for form parsing
+apscheduler

@@ -88,6 +88,13 @@ class Settings(BaseSettings):
 settings = Settings()
 
 # ─── 5) Overlay JSON defaults where ENV didn’t set anything ──────────────────
+_valid_fields = set(Settings.model_fields.keys())
+
 for key, val in _json_cfg.items():
+    if key not in _valid_fields:
+        # skip any JSON setting that isn’t declared in Settings
+        continue
+
+    # only apply JSON default if the env didn’t already set it
     if getattr(settings, key, None) is None:
         setattr(settings, key, val)

@@ -134,6 +134,10 @@ def _raw_lookup_movie(title: str, year: int) -> Optional[dict]:
         logger.error("[TMDB] ❌ get_movie failed for '%s' (year=%s): %s", title, year, e)
         return None
 
+def remove_prefixes(title: str) -> str:
+    for bad in settings.remove_strings:
+        title = title.replace(bad, "").strip()
+    return title
 
 def get_movie(title: str, year: int) -> Optional[Movie]:
     """Fetch and cache TMDb movie metadata, returning a typed Movie."""
@@ -142,7 +146,7 @@ def get_movie(title: str, year: int) -> Optional[Movie]:
         return cached
     if settings.tmdb_api_key:
         logger.info("[TMDB] 🔍 Looking up movie: %s", title)
-        raw = _raw_lookup_movie(title, int)
+        raw = _raw_lookup_movie(title, year)
         if raw:
             movie = Movie(
                 id=raw.get("id", 0),

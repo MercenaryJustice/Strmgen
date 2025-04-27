@@ -65,7 +65,6 @@ def process_movie(
         raw_title, raw_year = m.group(1), m.group(2)
         title = clean_name(raw_title)
         year = int(raw_year)
-
     else:
         title = clean_name(name)
         year = None

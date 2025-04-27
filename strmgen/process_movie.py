@@ -11,7 +11,6 @@ from log import setup_logger
 
 logger = setup_logger(__name__)
 TITLE_YEAR_RE = re.compile(r"^(.*)\s(\d{4})$")
-print(TITLE_YEAR_RE)
 _skipped_movies = set()
 
 log_tag = "[MOVIE] 🖼️"

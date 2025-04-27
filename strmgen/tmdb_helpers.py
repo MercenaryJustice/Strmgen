@@ -92,10 +92,6 @@ class EpisodeMeta:
     raw: Dict
 
 TMDB_SESSION = requests.Session()
-TMDB_SESSION.headers.update({
-    "Authorization": f"Bearer {settings.tmdb_api_key}",
-    "Content-Type": "application/json;charset=utf-8"
-})
 DOWNLOAD_EXECUTOR = ThreadPoolExecutor(max_workers=8)
 
 _tmdb_show_cache = {}
@@ -104,12 +100,7 @@ _tmdb_episode_cache = {}
 _tmdb_movie_cache = {}
 
 def tmdb_get(endpoint: str, params: dict) -> dict:
-    default_params = {
-        "language": settings.tmdb_language,
-        "include_adult": False,
-        "page": 1
-    }
-    params = {**default_params, **params}
+    params.update({"api_key": settings.tmdb_api_key, "language": settings.tmdb_language})
     r = TMDB_SESSION.get(f"https://api.themoviedb.org/3{endpoint}", params=params, timeout=10)
     r.raise_for_status()
     return r.json()

@@ -2,19 +2,20 @@ import os
 import json
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings
 from pydantic import Field
 
-# ─── 1) Load .env early ───────────────────────────────────────────────────────
+# Load environment variables from .env (python-dotenv)
 from dotenv import load_dotenv
 
+
+# ─── 1) Load .env early ───────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent
 DOTENV_PATH = BASE_DIR / ".env"
-
 if DOTENV_PATH.exists():
     load_dotenv(DOTENV_PATH, override=True)
 
-# ─── 2) Load JSON config (if exists) ──────────────────────────────────────────
+# ─── 2) Load JSON defaults ───────────────────────────────────────────────────
 def load_json_settings(path: Path) -> Dict[str, Any]:
     if path.exists():
         return json.loads(path.read_text(encoding="utf-8"))
@@ -23,7 +24,7 @@ def load_json_settings(path: Path) -> Dict[str, Any]:
 _json_cfg = load_json_settings(BASE_DIR / "config.json")
 
 
-# ─── 3) Define Settings ───────────────────────────────────────────────────────
+# ─── 3) Define Settings (env-only) ────────────────────────────────────────────
 class Settings(BaseSettings):
     # Authentication & API
     api_base:        str
@@ -82,7 +83,18 @@ class Settings(BaseSettings):
     tmdb_episode_cache: Dict = {}
     tmdb_movie_cache:   Dict = {}
 
-    model_config = SettingsConfigDict(extra="ignore")  # <-- Ignore extra fields if they sneak in
+# ─── 4) Instantiate from ENV ─────────────────────────────────────────────────
+# This will pull values from os.environ (populated by load_dotenv above).
+settings = Settings()
 
-# ─── 4) Instantiate Settings (ENV first, fallback to JSON) ────────────────────
-settings = Settings(**_json_cfg)
+# ─── 5) Overlay JSON defaults where ENV didn’t set anything ──────────────────
+_valid_fields = set(Settings.model_fields.keys())
+
+for key, val in _json_cfg.items():
+    if key not in _valid_fields:
+        # skip any JSON setting that isn’t declared in Settings
+        continue
+
+    # only apply JSON default if the env didn’t already set it
+    if getattr(settings, key, None) is None:
+        setattr(settings, key, val)

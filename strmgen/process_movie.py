@@ -10,7 +10,7 @@ from utils import clean_name, target_folder, write_if, write_movie_nfo, tmdb_mis
 from log import setup_logger
 
 logger = setup_logger(__name__)
-TITLE_YEAR_RE = re.compile(r"^(.*)\s(\d{4})$")
+TITLE_YEAR_RE = re.compile(r"^(.+?)\s*\((\d{4})\)$")
 _skipped_movies = set()
 
 log_tag = "[MOVIE] 🖼️"

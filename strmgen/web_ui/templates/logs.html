@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="section-header">
+    <h2>Application Logs</h2>
+    <div class="log-controls">
+      <input
+        type="text"
+        id="filter-input"
+        class="filter-input"
+        placeholder="Filter logs…"
+        title="Type to filter log lines"
+      />
+      <button id="clear-btn" class="clear-button">Clear Logs</button>
+    </div>
+  </div>
+
+  <div class="logs" id="log-container"></div>
+  <button id="load-more-btn" class="clear-button" style="display:none; margin:10px auto;">
+    Load more…
+  </button>
+
+  <script>
+    const container    = document.getElementById("log-container");
+    const clearBtn     = document.getElementById("clear-btn");
+    const filterInput  = document.getElementById("filter-input");
+    const loadMoreBtn  = document.getElementById("load-more-btn");
+    const protocol     = window.location.protocol === "https:" ? "wss" : "ws";
+    const wsUrl        = `${protocol}://${window.location.host}/ws/logs`;
+    const apiLogs      = "/api/logs";
+    const apiClear     = "/api/clear_logs";
+
+    let filterText   = "";
+    let totalLines   = 0;
+    let loadedLimit  = 500;  // initial batch size
+
+    // 1) Filter existing entries
+    filterInput.addEventListener("input", () => {
+      filterText = filterInput.value.trim().toLowerCase();
+      document.querySelectorAll(".log-entry").forEach(div => {
+        const text = div.textContent.toLowerCase();
+        div.style.display = text.includes(filterText) ? "" : "none";
+      });
+    });
+
+    // 2) Append a line if it matches the current filter
+    function appendLine(line) {
+      if (filterText && !line.toLowerCase().includes(filterText)) return;
+      const div = document.createElement("div");
+      div.className = "log-entry";
+      div.textContent = line;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    // 3) Load only the most recent `loadedLimit` lines
+    function loadLogs() {
+      fetch(`${apiLogs}?limit=${loadedLimit}`)
+        .then(r => r.json())
+        .then(j => {
+          totalLines = j.total ?? j.logs.length;
+          container.innerHTML = "";
+          j.logs.forEach(appendLine);
+
+          // show or hide the Load More button
+          if (totalLines > loadedLimit) {
+            loadMoreBtn.textContent = `Load ${loadedLimit} more…`;
+            loadMoreBtn.style.display = "block";
+          } else {
+            loadMoreBtn.style.display = "none";
+          }
+        })
+        .catch(err => console.error("Failed to load logs:", err));
+    }
+
+    // 4) Load more on button click (only one button ever shown)
+    loadMoreBtn.addEventListener("click", () => {
+      loadedLimit += 500;
+      loadMoreBtn.style.display = "none";  // hide until new data loads
+      loadLogs();
+    });
+
+    // initial load
+    loadLogs();
+
+    // 5) Stream new lines over WebSocket
+    const ws = new WebSocket(wsUrl);
+    ws.onmessage = evt => appendLine(evt.data);
+    ws.onclose   = () => appendLine("--- live log stream closed ---");
+    ws.onerror   = e   => console.error("WS error:", e);
+
+    // 6) Clear Logs button
+    clearBtn.addEventListener("click", async () => {
+      clearBtn.disabled = true;
+      try {
+        const res = await fetch(apiClear, { method: "POST" });
+        const j   = await res.json();
+        if (res.ok && j.status === "cleared") {
+          loadedLimit = 500;
+          container.innerHTML = "";
+        } else {
+          console.error("Clear failed:", j);
+        }
+      } catch(err) {
+        console.error("Error clearing logs:", err);
+      } finally {
+        clearBtn.disabled = false;
+      }
+    });
+  </script>
+{% endblock %}

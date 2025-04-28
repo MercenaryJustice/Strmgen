@@ -181,3 +181,4 @@ config.json
 strmgen/processors_old.py
 .vscode/tasks.json
 .dockerignore
+strmgen/logs/

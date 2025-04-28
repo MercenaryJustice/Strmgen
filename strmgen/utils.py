@@ -6,13 +6,18 @@ import re
 from pathlib import Path
 from typing import List, Any, Optional, Dict, Set, Callable
 
-from jinja2 import Environment
-from log import setup_logger
-from config import settings
+from jinja2 import Environment, select_autoescape
+from .log import setup_logger
+from .config import settings
 
 logger = setup_logger(__name__)
 # Initialize Jinja2 environment for XML escaping
-env = Environment(autoescape=True)
+env = Environment(
+    # loader=FileSystemLoader("path/to/your/templates"),
+    autoescape=select_autoescape(["xml"]),
+    trim_blocks=True,      # drop the first newline after a block
+    lstrip_blocks=True     # strip leading spaces/tabs from the start of a line to a block
+)
 
 # ─── Filesystem Helpers ───────────────────────────────────────────────────────
 
@@ -61,7 +66,9 @@ TVSHOW_TEMPLATE = """<tvshow>
   <premiered>{{ first_air_date }}</premiered>
   <rating>{{ vote_average }}</rating>
   <votes>{{ vote_count }}</votes>
-  <genre>{{ genres[0]['name'] if genres else '' }}</genre>
+  {% for genre in genre_names %}
+  <genre>{{ genre }}</genre>
+  {% endfor %}
   <status>{{ status }}</status>
   <studio>{{ networks[0]['name'] if networks else '' }}</studio>
 </tvshow>"""
@@ -107,16 +114,12 @@ def write_nfo(template_str: str, context: Dict[str, Any], path: Path) -> None:
     # 1) Make sure the directory exists
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 2) Correctly check for existence
-    if not path.exists():
-        xml = render_nfo(template_str, context)
-        try:
-            path.write_text(xml, encoding="utf-8")
-            logger.info("[NFO] Wrote NFO: %s", path)
-        except Exception as e:
-            logger.error("[NFO] Failed to write NFO %s: %s", path, e)
-    else:
-        logger.debug("[NFO] Skipping write, file already exists: %s", path)
+    xml = render_nfo(template_str, context)
+    try:
+        path.write_text(xml, encoding="utf-8")
+        logger.info("[NFO] Wrote NFO: %s", path)
+    except Exception as e:
+        logger.error("[NFO] Failed to write NFO %s: %s", path, e)
 
 
 def write_tvshow_nfo(meta: Dict[str, Any], path: Path) -> None:

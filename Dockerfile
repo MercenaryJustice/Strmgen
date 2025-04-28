@@ -14,4 +14,10 @@ ENV PYTHONUNBUFFERED=1
 
 # 5) Run from inside the package
 WORKDIR /app/strmgen
-ENTRYPOINT ["python", "main.py"]
+
+
+# expose port for UI
+EXPOSE 8000
+
+# default to serve the UI
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

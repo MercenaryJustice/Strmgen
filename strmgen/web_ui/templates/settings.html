@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Settings</h2>
+<form method="post" class="settings-form">
+
+  <!-- Core Connection -->
+  <div class="settings-group">
+    <h3>Core Connection</h3>
+    <div class="setting-item">
+      <label for="api_base">API Base URL</label>
+      <input id="api_base" type="text" name="api_base" value="{{ config.api_base }}" required/>
+      <div class="setting-help">Base URL of the STRMGen API (e.g., http://host:port)</div>
+    </div>
+    <div class="setting-item">
+      <label for="token_url">Token URL</label>
+      <input id="token_url" type="text" name="token_url" value="{{ config.token_url }}" required/>
+      <div class="setting-help">Path to the authentication token endpoint (e.g., /api/accounts/token/)</div>
+    </div>
+  </div>
+
+  <!-- Credentials -->
+  <div class="settings-group">
+    <h3>Credentials</h3>
+    <div class="setting-item">
+      <label for="username">Username</label>
+      <input id="username" type="text" name="username" value="{{ config.username }}" required/>
+      <div class="setting-help">Username for API authentication</div>
+    </div>
+    <div class="setting-item">
+      <label for="password">Password</label>
+      <div style="display: flex; align-items: center;">
+        <input id="password" type="password" name="password" value="{{ config.password }}" required/>
+        <button type="button" class="toggle-password" data-target="password" style="margin-left:8px;">Show</button>
+      </div>
+      <div class="setting-help">Password for API authentication</div>
+    </div>
+  </div>
+
+  <!-- Streaming -->
+  <div class="settings-group">
+    <h3>Streaming</h3>
+    <div class="setting-item">
+      <label for="stream_base_url">Stream Base URL</label>
+      <input id="stream_base_url" type="text" name="stream_base_url" value="{{ config.stream_base_url }}" required/>
+      <div class="setting-help">Base path for streaming endpoints (e.g., /proxy/ts/stream/)</div>
+    </div>
+    <div class="setting-item">
+      <label><input type="checkbox" name="skip_stream_check" {% if config.skip_stream_check %}checked{% endif %}/> Skip Stream Check</label>
+      <div class="setting-help">Skip validating stream availability</div>
+    </div>
+    <div class="setting-item">
+      <label><input type="checkbox" name="only_updated_streams" {% if config.only_updated_streams %}checked{% endif %}/> Only Updated Streams</label>
+      <div class="setting-help">Process only streams that have changed since last run</div>
+    </div>
+    <div class="setting-item">
+      <label><input type="checkbox" name="update_stream_link" {% if config.update_stream_link %}checked{% endif %}/> Update Stream Link</label>
+      <div class="setting-help">Update stream URLs instead of skipping on unchanged</div>
+    </div>
+  </div>
+
+  <!-- Output -->
+  <div class="settings-group">
+    <h3>Output</h3>
+    <div class="setting-item">
+      <label for="output_root">Output Root</label>
+      <input id="output_root" type="text" name="output_root" value="{{ config.output_root }}" required/>
+      <div class="setting-help">Root directory where output files will be written</div>
+    </div>
+    <div class="setting-item">
+      <label><input type="checkbox" name="clean_output_dir" {% if config.clean_output_dir %}checked{% endif %}/> Clean Output Directory</label>
+      <div class="setting-help">Remove and recreate the output directory on each run</div>
+    </div>
+  </div>
+
+  <!-- Processing Groups -->
+  <div class="settings-group">
+    <h3>Processing Groups</h3>
+    <div class="setting-item">
+      <label><input type="checkbox" name="process_movies_groups" {% if config.process_movies_groups %}checked{% endif %}/> Process Movies Groups</label>
+      <div class="setting-help">Enable processing of the defined movie groups</div>
+    </div>
+    <div class="setting-item">
+      <label for="movies_groups_raw">Movies Groups (comma-sep)</label>
+      <input id="movies_groups_raw" type="text" name="movies_groups_raw" value="{{ config.movies_groups|join(',') }}"/>
+      <div class="setting-help">Comma-separated patterns identifying movie groups to process</div>
+    </div>
+    <div class="setting-item">
+      <label><input type="checkbox" name="process_tv_series_groups" {% if config.process_tv_series_groups %}checked{% endif %}/> Process TV Series Groups</label>
+      <div class="setting-help">Enable processing of the defined TV series groups</div>
+    </div>
+    <div class="setting-item">
+      <label for="tv_series_groups_raw">TV Series Groups (comma-sep)</label>
+      <input id="tv_series_groups_raw" type="text" name="tv_series_groups_raw" value="{{ config.tv_series_groups|join(',') }}"/>
+      <div class="setting-help">Comma-separated patterns identifying TV series groups to process</div>
+    </div>
+    <div class="setting-item">
+      <label><input type="checkbox" name="process_groups_24_7" {% if config.process_groups_24_7 %}checked{% endif %}/> Process 24/7 Groups</label>
+      <div class="setting-help">Enable processing of live 24/7 channels</div>
+    </div>
+    <div class="setting-item">
+      <label for="groups_24_7_raw">24/7 Groups (comma-sep)</label>
+      <input id="groups_24_7_raw" type="text" name="groups_24_7_raw" value="{{ config.groups_24_7|join(',') }}"/>
+      <div class="setting-help">Comma-separated patterns identifying 24/7 channel groups to process</div>
+    </div>
+    <div class="setting-item">
+      <label for="remove_strings_raw">Remove Strings (comma-sep)</label>
+      <input id="remove_strings_raw" type="text" name="remove_strings_raw" value="{{ config.remove_strings|join(',') }}"/>
+      <div class="setting-help">Comma-separated list of substrings to strip from titles</div>
+    </div>
+  </div>
+
+  <!-- TMDb Options -->
+  <div class="settings-group">
+    <h3>TMDb Options</h3>
+    <div class="setting-item">
+      <label for="tmdb_api_key">TMDb API Key</label>
+      <div style="display: flex; align-items: center;">
+        <input id="tmdb_api_key" type="password" name="tmdb_api_key" value="{{ config.tmdb_api_key or '' }}"/>
+        <button type="button" class="toggle-password" data-target="tmdb_api_key" style="margin-left:8px;">Show</button>
+      </div>
+      <div class="setting-help">Your TMDb API key for metadata lookup (optional)</div>
+    </div>
+    <div class="setting-item">
+      <label for="tmdb_language">Language</label>
+      <input id="tmdb_language" type="text" name="tmdb_language" value="{{ config.tmdb_language }}"/>
+      <div class="setting-help">Language code for TMDb metadata (e.g., en-US)</div>
+    </div>
+    <div class="setting-item">
+      <label><input type="checkbox" name="tmdb_download_images" {% if config.tmdb_download_images %}checked{% endif %}/> Download Images</label>
+      <div class="setting-help">Download poster and fanart images from TMDb</div>
+    </div>
+    <div class="setting-item">
+      <label for="tmdb_image_size">Image Size</label>
+      <input id="tmdb_image_size" type="text" name="tmdb_image_size" value="{{ config.tmdb_image_size }}"/>
+      <div class="setting-help">Preferred image size for TMDb images (e.g., original)</div>
+    </div>
+    <div class="setting-item">
+      <label><input type="checkbox" name="tmdb_create_not_found" {% if config.tmdb_create_not_found %}checked{% endif %}/> Create “Not Found” Placeholder?</label>
+      <div class="setting-help">Create placeholder images when TMDb has no art</div>
+    </div>
+    <div class="setting-item">
+      <label for="minimum_year">Minimum Year</label>
+      <input id="minimum_year" type="number" name="minimum_year" value="{{ config.minimum_year }}"/>
+      <div class="setting-help">Skip titles released before this year</div>
+    </div>
+    <div class="setting-item">
+      <label><input type="checkbox" name="check_tmdb_thresholds" {% if config.check_tmdb_thresholds %}checked{% endif %}/> Check Thresholds</label>
+      <div class="setting-help">Enable rating/vote/popularity threshold checks</div>
+    </div>
+    <div class="setting-item">
+      <label for="minimum_tmdb_rating">Minimum Rating</label>
+      <input id="minimum_tmdb_rating" type="number" step="0.1" name="minimum_tmdb_rating" value="{{ config.minimum_tmdb_rating }}"/>
+      <div class="setting-help">Skip titles with an average rating below this</div>
+    </div>
+    <div class="setting-item">
+      <label for="minimum_tmdb_votes">Minimum Votes</label>
+      <input id="minimum_tmdb_votes" type="number" name="minimum_tmdb_votes" value="{{ config.minimum_tmdb_votes }}"/>
+      <div class="setting-help">Skip titles with fewer votes than this</div>
+    </div>
+    <div class="setting-item">
+      <label for="minimum_tmdb_popularity">Minimum Popularity</label>
+      <input id="minimum_tmdb_popularity" type="number" step="0.1" name="minimum_tmdb_popularity" value="{{ config.minimum_tmdb_popularity }}"/>
+      <div class="setting-help">Skip titles with popularity below this</div>
+    </div>
+  </div>
+
+  <!-- NFO Options -->
+  <div class="settings-group">
+    <h3>NFO Options</h3>
+    <div class="setting-item">
+      <label><input type="checkbox" name="write_nfo" {% if config.write_nfo %}checked{% endif %}/> Write NFO</label>
+      <div class="setting-help">Enable generation of NFO metadata files</div>
+    </div>
+    <div class="setting-item">
+      <label><input type="checkbox" name="write_nfo_only_if_not_exists" {% if config.write_nfo_only_if_not_exists %}checked{% endif %}/> Write NFO Only If Not Exists</label>
+      <div class="setting-help">Only write NFO files if they don't already exist</div>
+    </div>
+    <div class="setting-item">
+      <label><input type="checkbox" name="update_tv_series_nfo" {% if config.update_tv_series_nfo %}checked{% endif %}/> Write TV Series NFO If Exists</label>
+      <div class="setting-help">Update the TV series NFO even if already exists</div>
+    </div>
+  </div>
+
+  <!-- Subtitles -->
+  <div class="settings-group">
+    <h3>Subtitles</h3>
+    <div class="setting-item">
+      <label><input type="checkbox" name="opensubtitles_download" {% if config.opensubtitles_download %}checked{% endif %}/> OpenSubtitles Download</label>
+      <div class="setting-help">Enable downloading subtitles from OpenSubtitles</div>
+    </div>
+    <div class="setting-item">
+      <label for="opensubtitles_app_name">App Name</label>
+      <input id="opensubtitles_app_name" type="text" name="opensubtitles_app_name" value="{{ config.opensubtitles_app_name or '' }}"/>
+      <div class="setting-help">App name for OpenSubtitles API</div>
+    </div>
+    <div class="setting-item">
+      <label for="opensubtitles_api_key">API Key</label>
+      <div style="display: flex; align-items: center;">
+        <input id="opensubtitles_api_key" type="password" name="opensubtitles_api_key" value="{{ config.opensubtitles_api_key or '' }}"/>
+        <button type="button" class="toggle-password" data-target="opensubtitles_api_key" style="margin-left:8px;">Show</button>
+      </div>
+      <div class="setting-help">API key for OpenSubtitles service</div>
+    </div>
+    <div class="setting-item">
+      <label for="opensubtitles_username">Username</label>
+      <input id="opensubtitles_username" type="text" name="opensubtitles_username" value="{{ config.opensubtitles_username or '' }}"/>
+      <div class="setting-help">Username for OpenSubtitles service</div>
+    </div>
+    <div class="setting-item">
+      <label for="opensubtitles_password">Password</label>
+      <div style="display: flex; align-items: center;">
+        <input id="opensubtitles_password" type="password" name="opensubtitles_password" value="{{ config.opensubtitles_password or '' }}"/>
+        <button type="button" class="toggle-password" data-target="opensubtitles_password" style="margin-left:8px;">Show</button>
+      </div>
+      <div class="setting-help">Password for OpenSubtitles service</div>
+    </div>
+
+  <!-- ─── Scheduler Options ────────────────────────────────────────────── -->
+  <div class="settings-group">
+    <h3>Scheduled Task</h3>
+
+    <div class="setting-item">
+      <label>
+        <input 
+          type="checkbox" 
+          name="enable_scheduled_task"
+          {% if config.enable_scheduled_task %}checked{% endif %}
+        />
+        Enable Scheduled Task
+      </label>
+      <div class="setting-help">
+        Toggle automatic daily runs on/off
+      </div>
+    </div>
+
+    <div class="setting-item">
+      <label for="scheduled_hour">Hour (0–23)</label>
+      <input
+        id="scheduled_hour"
+        type="number"
+        name="scheduled_hour"
+        min="0" max="23"
+        value="{{ config.scheduled_hour }}"
+        required
+      />
+    </div>
+
+    <div class="setting-item">
+      <label for="scheduled_minute">Minute (0–59)</label>
+      <input
+        id="scheduled_minute"
+        type="number"
+        name="scheduled_minute"
+        min="0" max="59"
+        value="{{ config.scheduled_minute }}"
+        required
+      />
+    </div>
+  </div>    
+  </div>
+
+  <button type="submit" class="save-button">Save Settings</button>
+</form>
+
+<script>
+document.querySelectorAll('.toggle-password').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const targetId = btn.dataset.target;
+    const input = document.getElementById(targetId);
+    if (!input) return;
+    if (input.type === 'password') {
+      input.type = 'text';
+      btn.textContent = 'Hide';
+    } else {
+      input.type = 'password';
+      btn.textContent = 'Show';
+    }
+  });
+});
+</script>
+{% endblock %}

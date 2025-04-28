@@ -5,9 +5,9 @@ from typing import Optional
 from pathlib import Path
 
 from opensubtitlescom import OpenSubtitles
-from config import settings
-from utils import clean_name, safe_mkdir, ensure_str
-from log import setup_logger
+from .config import settings
+from .utils import clean_name, safe_mkdir, ensure_str
+from .log import setup_logger
 logger = setup_logger(__name__)
 
 _download_limit_reached = False  # global flag

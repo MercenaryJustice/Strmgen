@@ -4,10 +4,11 @@ import requests
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 from urllib.parse import quote_plus
-from config import settings
-from utils import safe_mkdir
-from utils import setup_logger
-from auth import get_access_token
+from .config import settings
+from .utils import safe_mkdir
+from .utils import setup_logger
+from .auth import get_access_token
+from .models import Stream
 logger = setup_logger(__name__)
 
 API_SESSION = requests.Session()
@@ -36,17 +37,18 @@ def _request_with_refresh(
             r = func(url, headers=headers, **kwargs)
     return r
 
-
 def fetch_streams_by_group_name(
     group_name: str,
-    headers: Dict[str, str]
-) -> List[Dict[str, Any]]:
+    headers: dict
+) -> List[Stream]:
     """
-    Fetch all streams for a given channel group, with automatic token refresh.
+    Fetch all streams for a given channel group, with automatic token refresh,
+    and return as a list of Stream models.
     """
-    out: List[Dict[str, Any]] = []
+    out: List[Stream] = []
     page = 1
     enc = quote_plus(group_name)
+
     while True:
         url = (
             f"{settings.api_base}/api/channels/streams/"
@@ -61,11 +63,25 @@ def fetch_streams_by_group_name(
                 r.text
             )
             break
+
         data = r.json()
-        out.extend(data.get("results", []))
+        results = data.get("results", [])
+
+        # parse each dict into our Pydantic model
+        for item in results:
+            try:
+                stream = Stream(**item)
+            except Exception as e:
+                logger.error("Failed to parse Stream for %s: %s", item, e)
+                continue
+            out.append(stream)
+
+        # no more pages?
         if not data.get("next"):
             break
+
         page += 1
+
     return out
 
 
@@ -149,9 +165,10 @@ def get_stream_by_id(
     stream_id: int,
     headers: Dict[str, str],
     timeout: int = 10
-) -> Optional[Dict[str, Any]]:
+) -> Optional[Stream]:
     """
-    Fetch a single channel stream's metadata via GET, with token refresh.
+    Fetch a single channel stream's metadata via GET, with token refresh,
+    and return as a Stream model.
     """
     url = f"{settings.api_base}/api/channels/streams/{stream_id}/"
     try:
@@ -164,8 +181,21 @@ def get_stream_by_id(
                 r.text
             )
             return None
+
+        data: Dict[str, Any] = r.json()
         logger.info("[STRM] ✅ Fetched stream #%d", stream_id)
-        return r.json()
+
+        try:
+            # Parse into our Pydantic model
+            return Stream(**data)
+        except Exception as ve:
+            logger.error(
+                "[STRM] ❌ Validation error for stream #%d: %s",
+                stream_id,
+                ve
+            )
+            return None
+
     except Exception as e:
         logger.error(
             "[STRM] ❌ Exception fetching stream #%d: %s",

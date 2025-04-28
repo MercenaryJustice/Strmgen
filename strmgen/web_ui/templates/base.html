@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>STRMGen UI</title>
+  <link rel="stylesheet" href="/static/css/style.css"/>
+  <link rel="icon" type="image/png" href="/static/img/strmgen_icon.png"/>
+  <link rel="shortcut icon" type="image/png" href="/static/img/strmgen_icon.png"/>
+</head>
+<body class="light-theme">
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="logo-container">
+        <img src="/static/img/strmgen_icon.png" alt="STRMGen" class="logo"/>
+        <h1>STRMGen</h1>
+      </div>
+      <nav class="nav-menu">
+        <a href="/" class="nav-item{% if request.url.path=='/' %} active{% endif %}">Home</a>
+        <a href="/settings" class="nav-item{% if request.url.path=='/settings' %} active{% endif %}">Settings</a>
+        <a href="/logs" class="nav-item{% if request.url.path=='/logs' %} active{% endif %}">Logs</a>
+      </nav>
+    </aside>
+
+    <div class="main-content">
+      <header class="top-bar">
+        <span class="page-title">{{ title if title else "STRMGen" }}</span>
+      </header>
+      <section class="content-section active">
+        {% block content %}{% endblock %}
+      </section>
+    </div>
+  </div>
+</body>
+</html>

@@ -3,10 +3,10 @@ import re
 from pathlib import Path
 from typing import Dict, Optional
 
-from config import settings
-from tmdb_helpers import TVShow, SeasonMeta, EpisodeMeta, lookup_show, get_season_meta, get_episode_meta, download_if_missing
-from subtitles import download_episode_subtitles
-from utils import (
+from .config import settings
+from .tmdb_helpers import TVShow, SeasonMeta, EpisodeMeta, lookup_show, get_season_meta, get_episode_meta, download_if_missing
+from .subtitles import download_episode_subtitles
+from .utils import (
     filter_by_threshold,
     target_folder,
     write_if,
@@ -14,7 +14,10 @@ from utils import (
     write_episode_nfo,
     clean_name
 )
-from streams import write_strm_file
+from .streams import write_strm_file
+
+# keep track of which show‐NFOs we've already written this process
+_written_show_nfos: set[str] = set()
 
 logger = logging.getLogger(__name__)
 RE_EPISODE_TAG = re.compile(r"(.+?)[ ._-][sS](\d{2})[eE](\d{2})")
@@ -72,10 +75,17 @@ def write_assets(
     url: str,
 ) -> bool:
     """Write .strm file, NFOs, and download images."""
+    global _written_show_nfos
+    
     # Show-level NFO and images
     if mshow and settings.write_nfo:
         # Write the show NFO
-        write_if(True, Paths.show_nfo(show_folder, mshow.name), write_tvshow_nfo, mshow.raw)
+        show_nfo_path = Paths.show_nfo(show_folder, mshow.name)
+
+        # only write if user wants updates, or if we haven't written it yet
+        if settings.update_tv_series_nfo and mshow.name not in _written_show_nfos:
+            write_tvshow_nfo(mshow.raw, show_nfo_path)
+            _written_show_nfos.add(mshow.name)
 
         # Download poster and backdrop (if missing)
         download_if_missing(
@@ -109,7 +119,7 @@ def write_assets(
     # Episode NFO and still image
     if settings.write_nfo:
         ep_nfo = Paths.episode_nfo(season_folder, mshow.name if mshow else show, season, ep)
-        write_if(True, ep_nfo, write_episode_nfo, episode_meta.raw)
+        write_if(settings.write_nfo_only_if_not_exists, ep_nfo, write_episode_nfo, episode_meta.raw)
         download_if_missing(
             log_tag,
             f"{mshow.name if mshow else show} S{season:02}E{ep:02} still",

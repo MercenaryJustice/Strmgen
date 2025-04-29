@@ -97,6 +97,8 @@ class EpisodeMeta:
 
 TMDB_SESSION = requests.Session()
 DOWNLOAD_EXECUTOR = ThreadPoolExecutor(max_workers=8)
+TMDB_BASE = "https://api.themoviedb.org/3"
+TMDB_IMG_BASE = "https://image.tmdb.org/t/p"
 
 _tmdb_show_cache = {}
 _tmdb_season_cache = {}
@@ -105,7 +107,7 @@ _tmdb_movie_cache = {}
 
 def tmdb_get(endpoint: str, params: dict) -> dict:
     params.update({"api_key": settings.tmdb_api_key, "language": settings.tmdb_language})
-    r = TMDB_SESSION.get(f"https://api.themoviedb.org/3{endpoint}", params=params, timeout=10)
+    r = TMDB_SESSION.get(f"{TMDB_BASE}{endpoint}", params=params, timeout=10)
     r.raise_for_status()
     return r.json()
 
@@ -173,11 +175,33 @@ def get_movie(title: str, year: int) -> Optional[Movie]:
             return movie
     return None
 
+
+def fetch_movie_details(tmdb_id: int) -> dict | None:
+    url = f"{TMDB_BASE}/movie/{tmdb_id}"
+    resp = requests.get(url, params={"api_key": settings.tmdb_api_key, "language": settings.tmdb_language, "append_to_response": "credits"})
+    if resp.status_code != 200:
+        return None
+    return resp.json()
+
+def fetch_tv_details(tmdb_id: int) -> Optional[Dict]:
+    url = f"{TMDB_BASE}/tv/{tmdb_id}"
+    params = {
+        "api_key": settings.tmdb_api_key,
+        "language": settings.tmdb_language,
+        "append_to_response": "credits",   # ← include cast
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception:
+        return None
+
 def _download_image(path: str, dest: Path):
     if settings.write_nfo_only_if_not_exists and dest.exists():
         logger.info("[TMDB] ⚠️ Skipped image (exists): %s", dest)
         return
-    url = f"https://image.tmdb.org/t/p/{settings.tmdb_image_size}{path}"
+    url = f"{TMDB_IMG_BASE}/{settings.tmdb_image_size}{path}"
     try:
         r = TMDB_SESSION.get(url, stream=True, timeout=10)
         r.raise_for_status()
@@ -289,7 +313,7 @@ def _load_tv_genres() -> None:
     if _tv_genre_map:
         return
 
-    url = "https://api.themoviedb.org/3/genre/tv/list"
+    url = f"{TMDB_BASE}/genre/tv/list"
     params = {
         "language": settings.tmdb_language,
         "api_key": settings.tmdb_api_key
@@ -300,31 +324,6 @@ def _load_tv_genres() -> None:
         _tv_genre_map[g["id"]] = g["name"]
 
 
-# def get_tv_details(tv_id: int) -> dict:
-#     """
-#     Fetch detailed metadata for a TV show, including a list of genre names.
-#     """
-#     _load_tv_genres()
-
-#     url = f"https://api.themoviedb.org/3/tv/{tv_id}"
-#     params = {
-#         "language": settings.tmdb_language,
-#         "api_key": settings.tmdb_api_key
-#     }
-#     resp = requests.get(url, params=params, timeout=10)
-#     resp.raise_for_status()
-#     data = resp.json()
-
-#     # TMDb returns 'genres': [{id,name}, …]
-#     # But if you ever get only genre_ids, you can map them here instead.
-#     genre_names = []
-#     for g in data.get("genres", []):
-#         name = _tv_genre_map.get(g["id"])
-#         if name:
-#             genre_names.append(name)
-
-#     data["genre_names"] = genre_names
-#     return data
 
 def get_season_meta(show_id: int, season: int) -> Optional[SeasonMeta]:
     """Fetch and cache TMDb season metadata, returning a typed SeasonMeta."""

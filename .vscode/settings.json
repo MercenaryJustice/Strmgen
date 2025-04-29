@@ -1,8 +1,6 @@
 {
-    "python.analysis.extraPaths": [
-      "${workspaceFolder}"
-    ],
-    "python.autoComplete.extraPaths": [
-      "${workspaceFolder}"
-    ]
-  }
+  // for newer versions of the Python extension:
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  // for backwards-compatibility:
+  "python.pythonPath": "${workspaceFolder}/.venv/bin/python"
+}

@@ -8,7 +8,7 @@ from .config import settings
 from .utils import safe_mkdir
 from .utils import setup_logger
 from .auth import get_access_token
-from .models import Stream
+from .models import Stream, DispatcharrStream
 logger = setup_logger(__name__)
 
 API_SESSION = requests.Session()
@@ -105,9 +105,8 @@ def is_stream_alive(
 
 def write_strm_file(
     path: Path,
-    stream_id: int,
     headers: Dict[str, str],
-    dispatcharr_url: str = "",
+    stream: DispatcharrStream,
     timeout: int = 10
 ) -> bool:
     """
@@ -116,19 +115,17 @@ def write_strm_file(
     """
     if not settings.update_stream_link and path.exists():
         return True
-    info = get_stream_by_id(stream_id, headers, timeout)
+    info = get_stream_by_id(stream.id, headers, timeout)
     if not info:
-        logger.warning("[STRM] ⚠️ Stream #%d metadata unavailable, skipping", stream_id)
+        logger.warning("[STRM] ⚠️ Stream #%d metadata unavailable, skipping", stream.id)
         return False
 
-    #current_url = info.get("url")
-    current_url = dispatcharr_url
-    if not current_url:
-        logger.warning("[STRM] ⚠️ Stream #%d has no URL, skipping", stream_id)
+    if not stream.url:
+        logger.warning("[STRM] ⚠️ Stream #%d has no URL, skipping", stream.id)
         return False
 
-    if not is_stream_alive(current_url, timeout):
-        logger.warning("[STRM] ⚠️ Stream #%d unreachable, skipping", stream_id)
+    if not is_stream_alive(stream.url, timeout):
+        logger.warning("[STRM] ⚠️ Stream #%d unreachable, skipping", stream.id)
         return False
 
     safe_mkdir(path.parent)
@@ -136,15 +133,15 @@ def write_strm_file(
     # If file exists, compare its contents with the current URL
     if path.exists():
         existing_url = path.read_text(encoding="utf-8").strip()
-        if existing_url == current_url.strip():
+        if existing_url == stream.url.strip():
             logger.info("[STRM] ⚠️ .strm already exists and is up-to-date: %s", path)
             return True
         else:
             logger.info("[STRM] 🔄 Updating existing .strm file (URL changed): %s", path)
 
     # Write new or updated URL to the .strm file
-    path.write_text(current_url, encoding="utf-8")
-    logger.info("[STRM] ✅ Wrote .strm: %s → %s", path, current_url)
+    path.write_text(stream.url, encoding="utf-8")
+    logger.info("[STRM] ✅ Wrote .strm: %s", path)
 
 
     # # local_file update currently not supported by Dispatcharr

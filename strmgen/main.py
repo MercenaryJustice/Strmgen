@@ -7,11 +7,12 @@ import fnmatch
 import json
 
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import Path as PathParam, Query, Body
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -28,6 +29,9 @@ from .process_tv import process_tv
 from .log import setup_logger, LOG_PATH
 from .tmdb_helpers import _load_tv_genres
 from .web_ui.routes import router as ui_router
+from .state import list_skipped, set_reprocess
+from .tmdb_helpers import fetch_movie_details, fetch_tv_details
+
 
 logger = setup_logger(__name__)
 
@@ -174,6 +178,35 @@ async def update_schedule(update: ScheduleUpdate):
         "next_run": next_run.isoformat() if next_run else None,
     }
 
+# ─── Skkipped endpoints ─────────────────────────────────────────────────────────
+@app.get("/api/skipped", include_in_schema=False)
+async def api_list_skipped():
+    return list_skipped(stream_type=None)   # or drop the stream_type filter entirely
+
+@app.post("/api/skipped/{tmdb_id}/reprocess", include_in_schema=False)
+async def api_set_reprocess(
+    tmdb_id: int = PathParam(...),
+    payload: dict = Body(...),
+):
+    allow = bool(payload.get("allow", False))
+    set_reprocess(tmdb_id, allow)
+    return {"tmdb_id": tmdb_id, "reprocess": allow}
+
+@app.get("/api/tmdb/info/{stream_type}/{tmdb_id}", include_in_schema=False)
+async def api_tmdb_info(stream_type: str, tmdb_id: int):
+    # use the new helper functions
+    if stream_type.lower() == "movie":
+        info = fetch_movie_details(tmdb_id)
+    else:
+        info = fetch_tv_details(tmdb_id)
+
+    if not info:
+        # return a 404 if TMDb returned nothing
+        raise HTTPException(status_code=404, detail=f"No TMDb info for {stream_type} {tmdb_id}")
+
+    # ensure a plain JSON response
+    return JSONResponse(content=info)
+
 # ─── Logs endpoints ─────────────────────────────────────────────────────────
 @app.get("/api/logs", include_in_schema=False)
 async def get_logs(limit: int = 500):
@@ -256,7 +289,7 @@ def cli_main(stop_event: threading.Event | None = None):
     logger.info("Pipeline starting")
     token = refresh_access_token_if_needed()
     headers = {"Authorization": f"Bearer {token}"}
-    dispatcharr_url = getattr(settings, "dispatcharr_url", None)
+    # dispatcharr_url = getattr(settings, "dispatcharr_url", None)
 
     def should_stop() -> bool:
         return stop_event is not None and stop_event.is_set()
@@ -315,6 +348,10 @@ def cli_main(stop_event: threading.Event | None = None):
         except Exception:
             logger.exception("Error fetching streams for %s", grp)
             continue
+
+        threshold = timedelta(days=settings.last_modified_days)
+        now = datetime.now(timezone.utc)
+
         for stream in streams:
             if should_stop():
                 logger.info("Stopped during %s group %s", label, grp)
@@ -326,14 +363,29 @@ def cli_main(stop_event: threading.Event | None = None):
                 except Exception:
                     logger.exception("Failed to persist last_run to config.json")
                 return
+            
+            # — skip streams not updated recently —
+            if settings.last_modified_days > 0 and stream.updated_at:
+                if stream.updated_at is None:
+                    logger.debug("… skipping %s: no updated_at", stream.id)
+                    continue
+
+                if now - stream.updated_at > threshold:
+                    # logger.info(
+                    #     "[SKIP] %s → %s: not updated in the last %d days",
+                    #     stream.id,
+                    #     stream.name,
+                    #     settings.last_modified_days,
+                    # )
+                    continue          
+            
+            
             logger.info("  %s → %s (ID %s)", label, stream.name, stream.id)
             proc_fn(
-                stream.name,
-                stream.id,
+                stream,
                 Path(settings.output_root),
                 grp,
-                headers,
-                dispatcharr_url
+                headers
             )
 
     # pipeline fully done

@@ -3,18 +3,21 @@
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Request, Form, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi import FastAPI, APIRouter, Request, Form, HTTPException, Query, Body
+from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import ValidationError
+from pydantic import ValidationError, BaseModel
 from types import SimpleNamespace
 
+from ..state import set_reprocess, list_skipped, update_skipped_reprocess
 from ..config import settings, CONFIG_PATH, _json_cfg
+from ..tmdb_helpers import fetch_movie_details, fetch_tv_details
 
 router = APIRouter()
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
+app = FastAPI()
 
 @router.get("/", include_in_schema=False)
 def home_page(request: Request):
@@ -72,9 +75,11 @@ async def save_settings(
         "output_root":           posted["output_root"],
 
         "process_movies_groups":    "process_movies_groups"    in posted,
+        "movie_year_regex":        posted["movie_year_regex"],
         "movies_groups":            [s.strip() for s in posted["movies_groups_raw"].split(",") if s.strip()],
         "process_tv_series_groups": "process_tv_series_groups" in posted,
         "tv_series_groups":         [s.strip() for s in posted["tv_series_groups_raw"].split(",") if s.strip()],
+        "tv_series_episode_regex":        posted["tv_series_episode_regex"],
         "process_groups_24_7":      "process_groups_24_7"      in posted,
         "groups_24_7":              [s.strip() for s in posted["groups_24_7_raw"].split(",") if s.strip()],
         "remove_strings":           [s.strip() for s in posted["remove_strings_raw"].split(",") if s.strip()],
@@ -143,3 +148,58 @@ async def save_settings(
 
     # Redirect GET→POST→GET
     return RedirectResponse(request.url_for("settings_page"), status_code=303)
+
+
+
+@router.get("/skipped", response_class=HTMLResponse)
+async def skipped_page(request: Request):
+    return templates.TemplateResponse("skipped.html", {"request": request})
+
+
+@app.get("/api/skipped-streams")
+async def api_list_skipped(stream_type: str | None = Query(None)):
+    """
+    List all skipped streams, optionally filtered by stream_type.
+    """
+    rows = list_skipped(stream_type) if stream_type else list_skipped(None)
+    return {"skipped": rows}
+
+@app.post("/api/skipped-streams/{stream_type}/{tmdb_id}/reprocess")
+async def api_set_reprocess(
+    stream_type: str,
+    tmdb_id: int,
+    payload: dict = Body(...),
+):
+    """
+    Update the `reprocess` flag for a given skipped stream.
+    """
+    if "reprocess" not in payload:
+        raise HTTPException(400, "Missing 'reprocess' in body")
+    update_skipped_reprocess(tmdb_id, stream_type, bool(payload["reprocess"]))
+    return {"status": "ok"}
+
+@app.get("/api/tmdb/info/{stream_type}/{tmdb_id}")
+async def api_tmdb_info(stream_type: str, tmdb_id: int):
+    """
+    Fetch TMDb metadata for a movie or TV show and return as JSON.
+    """
+    if stream_type.lower() == "movie":
+        info = fetch_movie_details(tmdb_id)
+    else:
+        info = fetch_tv_details(tmdb_id)
+
+    if not info:
+        # no data found
+        raise HTTPException(404, f"No TMDb info for {stream_type} {tmdb_id}")
+
+    # ensure JSON-serializable dict
+    return JSONResponse(content=info)
+
+class ReprocessToggle(BaseModel):
+    tmdb_id: int
+    allow:   bool
+
+@router.post("/api/skipped_streams")
+async def toggle_reprocess(toggle: ReprocessToggle):
+    set_reprocess(toggle.tmdb_id, toggle.allow)
+    return {"status": "ok"}

@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block content %}
+<!-- Tabulator CSS & JS inline -->
+<link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator.min.css" rel="stylesheet">
+<link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator_midnight.min.css" rel="stylesheet">
+<script src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"></script>
+
+<style>
+  /* ensure Tabulator table fills container */
+  #skipped-table .tabulator-tableHolder .tabulator-table {
+    width: 100% !important;
+    border-collapse: collapse;
+  }
+
+  /* full-width, transparent detail rows */
+  tr.detail-row td {
+    padding: 0 !important;
+    border: none !important;
+    background: var(--bg-secondary) !important;
+  }
+  .detail-container {
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-secondary);
+  }
+  /* ensure inner detail flex container spans full width */
+  .detail-container > div {
+    width: 100%;
+  }
+</style>
+
+<div class="card" style="height:90vh; display:flex; flex-direction:column;">
+  <h2><i class="fas fa-ban"></i> Skipped Streams</h2>
+  <div style="margin-bottom:15px; display:flex; align-items:center;">
+    <button id="refresh-btn" class="save-button">Refresh</button>
+    <input id="filter-input" type="text" placeholder="Filter streams..." style="margin-left:10px; flex:1;"/>
+  </div>
+  <div id="skipped-table" style="flex:1;"></div>
+</div>
+
+<script>
+window.addEventListener("DOMContentLoaded", () => {
+  const IMAGE_BASE = 'https://image.tmdb.org/t/p/w200';
+  const filterInput = document.getElementById('filter-input');
+  const isDark = document.body.classList.contains('dark-theme');
+
+  const table = new Tabulator("#skipped-table", {
+    theme: isDark ? "midnight" : "default",
+    layout: "fitColumns",
+    height: "100%",
+    pagination: "local",
+    paginationSize: 20,
+    paginationSizeSelector: [20,50,100,200,500,1000],
+    movableColumns: true,
+    initialSort: [{column:"tmdb_id", dir:"desc"}],
+    columns: [
+      {title:"Type",      field:"stream_type", headerFilter:"select", headerFilterParams:{values:true, includeEmpty:true}, headerFilterFunc:"=", headerFilterLiveFilter:true},
+      {title:"TMDb ID",   field:"tmdb_id",     sorter:"number"},
+      {title:"Group",     field:"group",       headerFilter:"input"},
+      {title:"Name",      field:"name",        headerFilter:"input", widthGrow:2},
+      {title:"Reprocess?",field:"reprocess",   formatter:"tickCross", sorter:"boolean", headerFilter:"tickCross", cellClick:(e,cell)=>{
+          let d = cell.getRow().getData(); d.reprocess = !d.reprocess;
+          fetch(`/api/skipped/${d.tmdb_id}/reprocess`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({allow:d.reprocess}) });
+          cell.getRow().update({reprocess:d.reprocess});
+      }},
+      {title:"Action",    formatter:()=>"<button class='show-info'>Show Info</button>", hozAlign:"center", width:100, cellClick:(e,cell)=>{
+          toggleDetail(cell.getRow());
+      }},
+    ],
+  });
+
+  window.addEventListener("themeChanged", e => {
+    table.setTheme(e.detail==="dark" ? "midnight" : "default");
+  });
+
+  async function refresh() {
+    const res = await fetch('/api/skipped');
+    if(res.ok) {
+      const data = await res.json();
+      table.setData(data).then(()=>{
+        if(!filterInput.value.trim()) table.clearFilter();
+      });
+    }
+  }
+
+  filterInput.addEventListener('input', function(){
+    const v = this.value.trim();
+    if(v) {
+      table.setFilter([
+        {field:'stream_type', type:'like', value:v},
+        {field:'name',        type:'like', value:v},
+        {field:'group',       type:'like', value:v}
+      ]);
+    } else {
+      table.clearFilter();
+    }
+  });
+
+  async function toggleDetail(row) {
+    const el = row.getElement();
+    const nxt = el.nextElementSibling;
+    // if this row is already expanded, collapse it
+    if(nxt && nxt.classList.contains('detail-row')) {
+      nxt.remove();
+      return;
+    }
+    // collapse any other open detail rows
+    document.querySelectorAll('tr.detail-row').forEach(r=>r.remove());
+
+    const d = row.getData();
+    const colCount = el.querySelectorAll('td').length;
+    const detailRow = document.createElement('tr');
+    detailRow.classList.add('detail-row');
+    detailRow.innerHTML = `<td colspan="${colCount}"><div class="detail-container">Loading details...</div></td>`;
+    el.parentNode.insertBefore(detailRow, nxt);
+
+    const res = await fetch(`/api/tmdb/info/${d.stream_type}/${d.tmdb_id}?append_to_response=credits`);
+    if(!res.ok) {
+      detailRow.firstChild.innerHTML = `Error ${res.status}`;
+      return;
+    }
+    const info = await res.json();
+
+    const title    = info.title||info.name||'';
+    const year     = (info.release_date||info.first_air_date||'').slice(0,4);
+    const rating   = info.vote_average?Math.round(info.vote_average*10)+'%':'';
+    const genres   = (info.genres||[]).map(g=>g.name).join(', ');
+    const overview = info.overview||'';
+    const tagline  = info.tagline?`<em style=\"color:var(--text-muted)\">${info.tagline}</em>`:'';
+    const castHtml = (info.credits?.cast||[]).slice(0,8).map(c=>{
+      const img = c.profile_path? IMAGE_BASE+c.profile_path : '/static/img/avatar-placeholder.png';
+      return `<div style=\"min-width:100px;text-align:center;\"><img src=\"${img}\" style=\"width:100%;height:120px;object-fit:cover;border-radius:4px;\"/><div style=\"font-weight:600;margin-top:5px;\">${c.name}</div><div style=\"font-size:0.85rem;color:var(--text-secondary);\">${c.character||''}</div></div>`;
+    }).join('');
+
+    detailRow.firstChild.innerHTML = `
+      <div style=\"display:flex;width:100%;gap:20px;padding:20px;background:var(--bg-secondary);\">
+        <div><img src=\"${info.poster_path?IMAGE_BASE+info.poster_path:''}\" style=\"width:200px;border-radius:8px;\"/></div>
+        <div style=\"flex:1;\">
+          <h1>${title} (${year})</h1>
+          <div style=\"display:flex;align-items:center;gap:15px;margin:10px 0;\"><div style=\"font-size:1.5rem;font-weight:600;color:var(--accent-color);\">${rating}</div><div style=\"font-size:1rem;color:var(--text-secondary);\">${genres}</div></div>
+          ${tagline}
+          <p style=\"line-height:1.6;\">${overview}</p>
+          ${castHtml?`<h3>Series Cast</h3><div style=\"display:flex;overflow-x:auto;gap:10px;\">${castHtml}</div>`:''}
+        </div>
+      </div>`;
+
+    // keep parent row visible
+    el.scrollIntoView({ behavior:'smooth', block:'start' });
+  }
+
+  document.getElementById('refresh-btn').addEventListener('click', refresh);
+  refresh();
+});
+</script>
+
+{% endblock %}

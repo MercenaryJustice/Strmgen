@@ -8,11 +8,13 @@
   "clean_output_dir": false,
   "output_root": "/output",
   "process_movies_groups": true,
+  "movie_year_regex": "^(.+?)\\s*\\((\\d{4})\\)$",
   "movies_groups": [
     "Movies-*",
     "Movie-*"
   ],
   "process_tv_series_groups": true,
+  "tv_series_episode_regex": "(.+?)[ ._-][sS](\\d{2})[eE](\\d{2})",
   "update_tv_series_nfo": true,
   "tv_series_groups": [
     "Series-*"
@@ -26,6 +28,7 @@
   "refresh": "",
   "skip_stream_check": true,
   "only_updated_streams": true,
+  "last_modified_days": 5,
   "update_stream_link": false,
   "tmdb_api_key": "",
   "tmdb_language": "en-US",

@@ -1,23 +1,21 @@
-FROM python:3.11
+FROM python:3.12
+
+# 1) system-level deps (if you need ffmpeg, git, etc, install here)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # e.g. git ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# 1) Install deps
+# 2) install python deps
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 2) Copy your package folder
-COPY strmgen/ ./strmgen/
+# 3) copy the code
+COPY . .
 
-# 4) Unbuffered logs
-ENV PYTHONUNBUFFERED=1
+# 4) expose your UI port
+EXPOSE 8808
 
-# 5) Run from inside the package
-WORKDIR /app/strmgen
-
-
-# expose port for UI
-EXPOSE 8000
-
-# default to serve the UI
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 5) entrypoint
+CMD ["uvicorn", "strmgen.main:app", "--host", "0.0.0.0", "--port", "8808"]

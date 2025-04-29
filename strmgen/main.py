@@ -19,7 +19,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.events import EVENT_JOB_EXECUTED
 
-from .config import settings, CONFIG_PATH, _json_cfg
+from strmgen.config import settings, CONFIG_PATH, _json_cfg
 from .auth import refresh_access_token_if_needed
 from .streams import fetch_streams_by_group_name
 from .process_24_7 import process_24_7

@@ -2,12 +2,11 @@
 
 import sqlite3
 import json
-from pathlib import Path
-from typing import Optional, Any
+from typing import TypedDict, Optional, List, Any
 from dataclasses import is_dataclass, asdict
 
 from .config import CONFIG_PATH
-from .log import setup_logger
+from .utils import setup_logger
 
 logger = setup_logger(__name__)
 
@@ -66,7 +65,7 @@ def mark_skipped(stream_type: str, group: str, mshow: Any) -> bool:
     """
     # 1) Serialization
     if is_dataclass(mshow):
-        data_dict = asdict(mshow)
+        data_dict = asdict(mshow) if not isinstance(mshow, type) else {}
     elif hasattr(mshow, "raw"):
         data_dict = mshow.raw
     else:
@@ -93,7 +92,7 @@ def mark_skipped(stream_type: str, group: str, mshow: Any) -> bool:
     # 4) If we still don’t have both, warn & bail
     if tmdb_id is None or not name:
         logger.warning("Skipped insert: could not determine tmdb_id or name from %r", mshow)
-        return
+        return False
 
 
     try:
@@ -118,7 +117,15 @@ def mark_skipped(stream_type: str, group: str, mshow: Any) -> bool:
         logger.debug("⏭️ mark_skipped: record already exists %s (%s)", name, tmdb_id)
         return False
 
-def list_skipped(stream_type: Optional[str] = None) -> list[dict]:
+class SkippedStream(TypedDict):
+    tmdb_id: int
+    stream_type: str
+    group: str
+    name: str
+    data: dict[str, Any]
+    reprocess: bool
+
+def list_skipped(stream_type: Optional[str] = None) -> List[SkippedStream]:
     """
     Return a list of all rows in skipped_streams as dicts:
     [{ "tmdb_id": ..., "stream_type": ..., "group": ..., "name": ..., "data": ..., "reprocess": ... }, ...]
@@ -132,7 +139,7 @@ def list_skipped(stream_type: Optional[str] = None) -> list[dict]:
             "SELECT tmdb_id, stream_type, group_name, name, data, reprocess FROM skipped_streams WHERE stream_type=?",
             (stream_type,),
         ).fetchall()
-    out = []
+    out: List[SkippedStream] = []
     for r in rows:
         out.append({
             "tmdb_id":     r["tmdb_id"],

@@ -4,10 +4,10 @@ Utility functions, directory handling, Jinja2-backed NFO templating, and TMDb fi
 """
 import re
 from pathlib import Path
-from typing import List, Any, Optional, Dict, Set, Callable
+from typing import List, Any, Optional, Dict, Callable
 
 from jinja2 import Environment, select_autoescape
-from .log import setup_logger
+from .logger import setup_logger
 from .config import settings
 
 logger = setup_logger(__name__)
@@ -157,6 +157,11 @@ def clean_name(name: str) -> str:
         for token in settings.remove_strings:
             name = name.replace(token, "")
     return re.sub(r'[<>:"/\\|?*]', "", name)
+
+def remove_prefixes(title: str) -> str:
+    for bad in settings.remove_strings:
+        title = title.replace(bad, "").strip()
+    return title
 
 # ─── TMDb Filtering ──────────────────────────────────────────────────────────
 

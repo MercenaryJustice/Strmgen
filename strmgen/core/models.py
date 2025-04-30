@@ -1,7 +1,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, List
+from typing import Optional, Dict
 from pathlib import Path
 from pydantic import BaseModel
 
@@ -33,14 +33,14 @@ class DispatcharrStream:
         return self.updated_at.date() >= today_utc
     
     @classmethod
-    def from_dict(cls, data: dict) -> "DispatcharrStream":
+    def from_dict(cls, data: Dict[str, Optional[object]]) -> "DispatcharrStream":
         """
         Create a Stream instance from a raw dict, converting
         types for `local_file` and `updated_at`.
         """
         # Convert local_file to Path if present
         lf = data.get("local_file")
-        local_file = Path(lf) if lf else None
+        local_file = Path(str(lf)) if lf else None
 
         # parse ISO8601 with Z suffix
         ts = data.get("updated_at")
@@ -48,10 +48,10 @@ class DispatcharrStream:
         if ts:
             try:
                 # try with microseconds
-                updated_at = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%fZ")
+                updated_at = datetime.strptime(str(ts), "%Y-%m-%dT%H:%M:%S.%fZ")
             except ValueError:
                 # fallback without microseconds
-                updated_at = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ")
+                updated_at = datetime.strptime(str(ts), "%Y-%m-%dT%H:%M:%SZ")
 
         return cls(
             id=data["id"],

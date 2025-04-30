@@ -1,6 +1,6 @@
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 # and your JSON lives at:        strmgen/strmgen/config/config.json
 
 BASE_DIR    = Path(__file__).parent           # .../strmgen/strmgen
-CONFIG_PATH = BASE_DIR / "config" / "config.json"
+CONFIG_PATH = BASE_DIR / "config.json"
 
 if not CONFIG_PATH.exists():
     raise FileNotFoundError(f"Cannot find config.json at {CONFIG_PATH!r}")
@@ -96,7 +96,7 @@ class Settings(BaseModel):
     # ─── coerce blank-last_run into None ──────────────────────────────────────
     @field_validator("last_run", mode="before")
     @classmethod
-    def _none_if_blank_last_run(cls, v):
+    def _none_if_blank_last_run(cls, v: Optional[str]) -> Optional[str]:
         if isinstance(v, str) and not v.strip():
             return None
         return v
@@ -122,15 +122,19 @@ class Settings(BaseModel):
     )
 
     @property
-    def MOVIE_TITLE_YEAR_RE(self) -> re.Pattern:
+    def MOVIE_TITLE_YEAR_RE(self) -> re.Pattern[str]:
         # compile once, reuse everywhere
         return re.compile(self.movie_year_regex)
 
 
     @property
-    def TV_SERIES_EPIDOSE_RE(self) -> re.Pattern:
+    def TV_SERIES_EPIDOSE_RE(self) -> re.Pattern[str]:
         # compile once, reuse everywhere
         return re.compile(self.tv_series_episode_regex)
 
 # ─── 4) Instantiate from your JSON ────────────────────────────────────────────
-settings = Settings(**_json_cfg)
+settings: Settings = Settings(**_json_cfg)
+
+def reload_settings():
+    global settings
+    settings = json.loads(CONFIG_PATH.read_text())

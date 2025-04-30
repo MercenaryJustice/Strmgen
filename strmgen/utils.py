@@ -161,7 +161,6 @@ def clean_name(name: str) -> str:
 # ─── TMDb Filtering ──────────────────────────────────────────────────────────
 
 def filter_by_threshold(
-    cache_set: Set[str],
     name: str,
     meta: Optional[Dict[str, Any]]
 ) -> bool:
@@ -196,7 +195,6 @@ def filter_by_threshold(
 
     # ─── Final check ──────────────────────────────────────────────
     if failed_reasons:
-        cache_set.add(clean_name(name))
         reason_str = "; ".join(failed_reasons)
         logger.info(f"[TMDB] ❌ Filter failed for title: {name}. Reasons: {reason_str}")
         return False

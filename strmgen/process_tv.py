@@ -3,7 +3,9 @@ import re
 from pathlib import Path
 from typing import Dict, Optional
 
+from .state import mark_skipped, is_skipped
 from .config import settings
+from .models import DispatcharrStream
 from .tmdb_helpers import TVShow, SeasonMeta, EpisodeMeta, lookup_show, get_season_meta, get_episode_meta, download_if_missing
 from .subtitles import download_episode_subtitles
 from .utils import (
@@ -20,8 +22,7 @@ from .streams import write_strm_file
 _written_show_nfos: set[str] = set()
 
 logger = logging.getLogger(__name__)
-RE_EPISODE_TAG = re.compile(r"(.+?)[ ._-][sS](\d{2})[eE](\d{2})")
-_skipped_shows = set()
+RE_EPISODE_TAG = settings.TV_SERIES_EPIDOSE_RE
 
 log_tag = "[TV] 🖼️"
 
@@ -62,6 +63,7 @@ class Paths:
 
 
 def write_assets(
+    stream: DispatcharrStream,
     show: str,
     season: int,
     ep: int,
@@ -70,9 +72,7 @@ def write_assets(
     strm_path: Path,
     mshow: Optional[TVShow],
     episode_meta: EpisodeMeta,
-    sid: int,
-    headers: Dict[str, str],
-    url: str,
+    headers: Dict[str, str]
 ) -> bool:
     """Write .strm file, NFOs, and download images."""
     global _written_show_nfos
@@ -83,9 +83,12 @@ def write_assets(
         show_nfo_path = Paths.show_nfo(show_folder, mshow.name)
 
         # only write if user wants updates, or if we haven't written it yet
-        if settings.update_tv_series_nfo and mshow.name not in _written_show_nfos:
+        if settings.write_nfo and show not in _written_show_nfos:
             write_tvshow_nfo(mshow.raw, show_nfo_path)
-            _written_show_nfos.add(mshow.name)
+            _written_show_nfos.add(show)
+            if settings.update_tv_series_nfo:
+                return
+
 
         # Download poster and backdrop (if missing)
         download_if_missing(
@@ -112,7 +115,7 @@ def write_assets(
         )
 
     # Write .strm file
-    if not write_strm_file(strm_path, sid, headers, url):
+    if not write_strm_file(strm_path, headers, stream):
         logger.warning("[TV] ❌ Failed writing .strm for: %s", strm_path)
         return False
 
@@ -155,12 +158,10 @@ def download_subtitles_if_enabled(
 
 
 def process_tv(
-    name: str,
-    sid: int,
+    stream: DispatcharrStream,
     root: Path,
     group: str,
-    headers: Dict[str, str],
-    url: str,
+    headers: Dict[str, str]
 ) -> None:
     """
     Process a single TV episode entry:
@@ -169,24 +170,30 @@ def process_tv(
       3. Filter by thresholds
       4. Write .strm, NFOs, images, and subtitles
     """
-    match = RE_EPISODE_TAG.match(name)
+    match = RE_EPISODE_TAG.match(stream.name)
     if not match:
-        logger.info("[TV] ❌ No SxxExx pattern matched in: %s", name)
+        logger.info("[TV] ❌ No SxxExx pattern matched in: %s", stream.name)
         return
 
     show = clean_name(match.group(1))
+
     season = int(match.group(2))
     ep = int(match.group(3))
     logger.info("[TV] 📺 Detected TV episode: %s S%02dE%02d", show, season, ep)
 
-    if show in _skipped_shows:
-        logger.info("[TV] ⏭️ Skipped show (cached): %s", show)
-        return
-
     # Ensure metadata
     mshow = lookup_show(show)
-    if not filter_by_threshold(_skipped_shows, name, mshow.raw if mshow else None):
+    if not mshow:
+        return
+    if is_skipped("TV", mshow.id):
+        logger.info("[TV] ⏭️ Skipped show (cached): %s", show)
+        return
+    if not filter_by_threshold(stream.name, mshow.raw if mshow else None):
+        mark_skipped("TV", group, mshow)
         logger.info("[TV] 🚫 Show '%s' failed threshold filters", show)
+        return
+
+    if settings.update_tv_series_nfo and show in _written_show_nfos:
         return
 
     # Prepare folders and paths
@@ -207,6 +214,7 @@ def process_tv(
 
     # Write assets and subtitles
     if write_assets(
+        stream,
         show,
         season,
         ep,
@@ -215,8 +223,6 @@ def process_tv(
         strm_path,
         mshow,
         episode_meta,
-        sid,
-        headers,
-        url,
+        headers
     ):
         download_subtitles_if_enabled(show, season, ep, season_folder, mshow)

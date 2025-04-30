@@ -53,6 +53,14 @@
       <div class="setting-help">Process only streams that have changed since last run</div>
     </div>
     <div class="setting-item">
+      <label for="last_modified_days">Max Stream Age (days)</label>
+      <input id="last_modified_days" type="number" name="last_modified_days"
+             min="0" value="{{ config.last_modified_days }}"/>
+      <div class="setting-help">
+        Skip any stream whose `updated_at` is older than this many days (0 = no filtering).
+      </div>
+    </div>
+    <div class="setting-item">
       <label><input type="checkbox" name="update_stream_link" {% if config.update_stream_link %}checked{% endif %}/> Update Stream Link</label>
       <div class="setting-help">Update stream URLs instead of skipping on unchanged</div>
     </div>
@@ -106,6 +114,21 @@
       <label for="remove_strings_raw">Remove Strings (comma-sep)</label>
       <input id="remove_strings_raw" type="text" name="remove_strings_raw" value="{{ config.remove_strings|join(',') }}"/>
       <div class="setting-help">Comma-separated list of substrings to strip from titles</div>
+    </div>
+  </div>
+
+  <!-- Filename Parsing -->
+  <div class="settings-group">
+    <h3>Filename Parsing</h3>
+    <div class="setting-item">
+      <label for="movie_year_regex">Movie Title-Year Regex</label>
+      <input id="movie_year_regex" type="text" name="movie_year_regex" value="{{ config.movie_year_regex }}" required/>
+      <div class="setting-help">Regex to extract title and year from filenames (named groups 'title' and 'year'.)</div>
+    </div>
+    <div class="setting-item">
+      <label for="tv_series_episode_regex">TV Series Season / Episode Regex</label>
+      <input id="tv_series_episode_regex" type="text" name="tv_series_episode_regex" value="{{ config.tv_series_episode_regex }}" required/>
+      <div class="setting-help">Regex to extract tv series season and episode</div>
     </div>
   </div>
 

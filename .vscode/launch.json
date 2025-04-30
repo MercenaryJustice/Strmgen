@@ -1,17 +1,21 @@
 {
-    "version": "0.2.0",
-    "configurations": [
-      {
-        "name": "Strmgen: Run main.py",
-        "type": "debugpy",
-        "request": "launch",
-        "program": "${workspaceFolder}/strmgen/main.py",
-        "console": "integratedTerminal",
-        "justMyCode": true,
-        "cwd": "${workspaceFolder}",
-        "env": {
-          "PYTHONUNBUFFERED": "1"
-        }
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: FastAPI (uvicorn)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/.venv/bin/uvicorn",
+      "args": [
+        "strmgen.main:app",          // adjust to your app’s import path
+        "--reload",                  // auto-reload on code changes
+        "--host", "0.0.0.0",
+        "--port", "8000"
+      ],
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
       }
-    ]
-  }
+    }
+  ]
+}

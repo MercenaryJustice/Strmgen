@@ -5,13 +5,14 @@ from typing import Optional, Dict
 from .config import settings
 from .subtitles import download_movie_subtitles
 from .streams import write_strm_file
+from .models import DispatcharrStream
 from .tmdb_helpers import Movie, get_movie, download_if_missing
 from .utils import clean_name, target_folder, write_if, write_movie_nfo, tmdb_missing_nfo_movie_fields, filter_by_threshold
 from .log import setup_logger
+from .state import mark_skipped, is_skipped
 
 logger = setup_logger(__name__)
-TITLE_YEAR_RE = re.compile(r"^(.+?)\s*\((\d{4})\)$")
-_skipped_movies = set()
+TITLE_YEAR_RE = settings.MOVIE_TITLE_YEAR_RE
 
 log_tag = "[MOVIE] 🖼️"
 
@@ -44,12 +45,10 @@ class MoviePaths:
 
 
 def process_movie(
-    name: str,
-    sid: int,
+    stream: DispatcharrStream,
     root: Path,
     group: str,
-    headers: Dict[str, str],
-    url: str,
+    headers: Dict[str, str]
 ) -> None:
     """
     Process a single Movie entry:
@@ -59,23 +58,28 @@ def process_movie(
       4. Write .strm, .nfo, download images, and subtitles
     """
     # Strip file extension and sanitize title
-    m = TITLE_YEAR_RE.match(name)
+    m = TITLE_YEAR_RE.match(stream.name)
     if m:
         raw_title, raw_year = m.group(1), m.group(2)
         title = clean_name(raw_title)
         year = int(raw_year)
     else:
-        title = clean_name(name)
+        title = clean_name(stream.name)
         year = None
     logger.info("[MOVIE] 🎬 Processing movie: %s", title)
 
-    if title in _skipped_movies:
+    # Fetch movie metadata
+    movie: Optional[Movie] = get_movie(title, year)
+    if not movie:
+        return
+
+
+    if is_skipped("MOVIE", movie.id):
         logger.info("[MOVIE] ⏭️ Skipped movie (cached): %s", title)
         return
 
-    # Fetch movie metadata
-    movie: Optional[Movie] = get_movie(title, year)
-    if not filter_by_threshold(_skipped_movies, name, movie.raw if movie else None):
+    if not filter_by_threshold(stream.name, movie.raw if movie else None):
+        mark_skipped("MOVIE", group, movie)
         logger.info("[MOVIE] 🚫 Movie '%s' failed threshold filters", title)
         return
 
@@ -93,7 +97,7 @@ def process_movie(
     strm_file = MoviePaths.strm_path(folder, title)
 
     # Write .strm
-    if not write_strm_file(strm_file, sid, headers, url):
+    if not write_strm_file(strm_file, headers, stream):
         logger.warning("[MOVIE] ❌ Failed writing .strm for: %s", strm_file)
         return
 

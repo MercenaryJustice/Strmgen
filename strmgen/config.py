@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -38,7 +39,15 @@ class Settings(BaseModel):
     # Filtering
     process_movies_groups:    bool
     movies_groups:            List[str]
+    movie_year_regex: str = Field(
+        r"^(?P<title>.+?)[\s._-]*\((?P<year>\d{4})\)$",
+        description="Regex to extract title and year from a filename",
+    )    
     process_tv_series_groups: bool
+    tv_series_episode_regex: str = Field(
+        r"^(?P<title>.+?)[\s._-]*\((?P<year>\d{4})\)$",
+        description="Regex to extract tv series season and episode from a filename",
+    )    
     tv_series_groups:         List[str]
     process_groups_24_7:      bool
     groups_24_7:              List[str]
@@ -46,6 +55,7 @@ class Settings(BaseModel):
     skip_stream_check:        bool
     update_stream_link:       bool
     only_updated_streams:     bool
+    last_modified_days: int = 0         # Number of days after which a stream’s `updated_at` is considered stale.
 
     # Runtime tokens (populated later)
     access:  Optional[str]
@@ -111,6 +121,16 @@ class Settings(BaseModel):
         description="ISO timestamp of the last run (UTC)",
     )
 
+    @property
+    def MOVIE_TITLE_YEAR_RE(self) -> re.Pattern:
+        # compile once, reuse everywhere
+        return re.compile(self.movie_year_regex)
+
+
+    @property
+    def TV_SERIES_EPIDOSE_RE(self) -> re.Pattern:
+        # compile once, reuse everywhere
+        return re.compile(self.tv_series_episode_regex)
 
 # ─── 4) Instantiate from your JSON ────────────────────────────────────────────
 settings = Settings(**_json_cfg)

@@ -7,7 +7,7 @@ from typing import Optional, Any
 from dataclasses import is_dataclass, asdict
 
 from .config import CONFIG_PATH
-from .log import setup_logger
+from .utils import setup_logger
 
 logger = setup_logger(__name__)
 

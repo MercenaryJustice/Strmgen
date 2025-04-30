@@ -9,9 +9,9 @@ from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError, BaseModel
 from types import SimpleNamespace
 
-from ..state import set_reprocess, list_skipped, update_skipped_reprocess
-from ..config import settings, CONFIG_PATH, _json_cfg
-from ..tmdb_helpers import fetch_movie_details, fetch_tv_details
+from ..core.state import set_reprocess, list_skipped, update_skipped_reprocess
+from ..core.config import settings, CONFIG_PATH, _json_cfg
+from ..services.tmdb import fetch_movie_details, fetch_tv_details
 
 router = APIRouter()
 BASE_DIR = Path(__file__).resolve().parent

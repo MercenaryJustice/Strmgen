@@ -5,9 +5,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from difflib import SequenceMatcher
 from typing import Optional, Dict, List
-from .config import settings
-from .utils import clean_name
-from .log import setup_logger
+from ..core.config import settings
+from ..core.utils import clean_name
+from ..core.logger import setup_logger
 logger = setup_logger(__name__)
 
 # cache of { genre_id → genre_name }

@@ -4,11 +4,11 @@ import requests
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 from urllib.parse import quote_plus
-from .config import settings
-from .utils import safe_mkdir
-from .utils import setup_logger
-from .auth import get_access_token
-from .models import Stream, DispatcharrStream
+from ..core.config import settings
+from ..core.utils import safe_mkdir
+from ..core.utils import setup_logger
+from ..core.auth import get_access_token
+from ..core.models import Stream, DispatcharrStream
 logger = setup_logger(__name__)
 
 API_SESSION = requests.Session()
@@ -201,67 +201,3 @@ def get_stream_by_id(
         )
         return None
 
-
-def update_stream_metadata(
-    stream_id: int,
-    data: Dict[str, Any],
-    headers: Dict[str, str],
-    timeout: int = 10
-) -> Optional[Dict[str, Any]]:
-    """
-    Update a channel stream's metadata via PUT, with token refresh.
-    """
-    url = f"{settings.api_base}/api/channels/streams/{stream_id}/"
-    # Exclude read-only fields
-    clean_data = {k: v for k, v in data.items() if k not in ('id', 'updated_at')}
-    try:
-        files = None
-        headers_for_call = headers.copy()
-        if 'local_file' in clean_data:
-            local_path = clean_data.pop('local_file')
-            try:
-                files = {'local_file': open(local_path, 'rb')}
-            except Exception as fe:
-                logger.error(
-                    "[STRM] ❌ Could not open local_file '%s': %s",
-                    local_path,
-                    fe
-                )
-                return None
-            # Remove JSON header to allow multipart
-            headers_for_call.pop('Content-Type', None)
-            r = _request_with_refresh(
-                "put",
-                url,
-                headers_for_call,
-                data=clean_data,
-                files=files,
-                timeout=timeout
-            )
-            for f in files.values():
-                f.close()
-        else:
-            r = _request_with_refresh(
-                "put",
-                url,
-                {**headers, 'Content-Type': 'application/json'},
-                json=clean_data,
-                timeout=timeout
-            )
-        if not r.ok:
-            logger.error(
-                "[STRM] ❌ Error updating stream #%d: %d %s",
-                stream_id,
-                r.status_code,
-                r.text
-            )
-            return None
-        logger.info("[STRM] ✅ Updated stream #%d", stream_id)
-        return r.json()
-    except Exception as e:
-        logger.error(
-            "[STRM] ❌ Exception updating stream #%d: %s",
-            stream_id,
-            e
-        )
-        return None

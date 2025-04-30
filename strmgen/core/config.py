@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 # and your JSON lives at:        strmgen/strmgen/config/config.json
 
 BASE_DIR    = Path(__file__).parent           # .../strmgen/strmgen
-CONFIG_PATH = BASE_DIR / "config" / "config.json"
+CONFIG_PATH = BASE_DIR / "config.json"
 
 if not CONFIG_PATH.exists():
     raise FileNotFoundError(f"Cannot find config.json at {CONFIG_PATH!r}")

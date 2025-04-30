@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List, Any, Optional, Dict, Set, Callable
 
 from jinja2 import Environment, select_autoescape
-from .log import setup_logger
+from .logger import setup_logger
 from .config import settings
 
 logger = setup_logger(__name__)

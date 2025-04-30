@@ -56,13 +56,39 @@ def start_background_run():
     processor_thread.start()
     logger.info("Pipeline thread started by scheduler/UI")
 
+def stop_background_run():
+    if processor_thread and processor_thread.is_alive():
+        stop_event.set()
+        logger.info("Stop signal sent")
+        return True
+    return False
+
+def is_running() -> bool:
+    return bool(processor_thread and processor_thread.is_alive())
+
+def schedule_on_startup():
+    """Call this once at app startup to configure the APScheduler job (if enabled)."""
+    scheduler.start()
+    if settings.enable_scheduled_task:
+        trigger = CronTrigger(
+            hour=settings.scheduled_hour,
+            minute=settings.scheduled_minute
+        )
+        scheduler.add_job(
+            start_background_run,
+            trigger=trigger,
+            id="daily_run",
+            replace_existing=True,
+        )
+        scheduler.add_listener(_record_daily_run, EVENT_JOB_EXECUTED)
+    else:
+        logger.info("Scheduled task disabled")
 
 # ─── Core pipeline logic ─────────────────────────────────────────────────────
 def cli_main(stop_event: threading.Event | None = None):
     logger.info("Pipeline starting")
     token = refresh_access_token_if_needed()
     headers = {"Authorization": f"Bearer {token}"}
-    dispatcharr_url = getattr(settings, "dispatcharr_url", None)
 
     def should_stop() -> bool:
         return stop_event is not None and stop_event.is_set()
@@ -119,12 +145,10 @@ def cli_main(stop_event: threading.Event | None = None):
 
             logger.info("  %s → %s (ID %s)", label, stream.name, stream.id)
             proc_fn(
-                stream.name,
-                stream.id,
+                stream,
                 Path(settings.output_root),
                 grp,
-                headers,
-                dispatcharr_url
+                headers
             )
 
     # 4) final logging

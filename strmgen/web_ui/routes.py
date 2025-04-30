@@ -15,7 +15,8 @@ from ..services.tmdb import fetch_movie_details, fetch_tv_details
 
 router = APIRouter()
 BASE_DIR = Path(__file__).resolve().parent
-templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+TEMPLATE_DIR = BASE_DIR / "templates"
+templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
 app = FastAPI()
 

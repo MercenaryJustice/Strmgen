@@ -1,12 +1,11 @@
 import logging
-import re
 from pathlib import Path
 from typing import Dict, Optional
 
 from ..core.state import mark_skipped, is_skipped
 from ..core.config import settings
 from ..core.models import DispatcharrStream
-from .tmdb import TVShow, SeasonMeta, EpisodeMeta, lookup_show, get_season_meta, get_episode_meta, download_if_missing
+from .tmdb import TVShow, EpisodeMeta, lookup_show, get_season_meta, get_episode_meta, download_if_missing
 from .subtitles import download_episode_subtitles
 from ..core.utils import (
     filter_by_threshold,

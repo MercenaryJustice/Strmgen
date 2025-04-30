@@ -7,7 +7,7 @@ from urllib.parse import quote_plus
 from ..core.config import settings
 from ..core.utils import safe_mkdir
 from ..core.utils import setup_logger
-from ..core.auth import get_access_token
+from ..core.auth import get_access_token, refresh_access_token_if_needed
 from ..core.models import Stream, DispatcharrStream
 logger = setup_logger(__name__)
 
@@ -201,3 +201,13 @@ def get_stream_by_id(
         )
         return None
 
+def fetch_groups() -> List[str]:
+    """
+    Return the list of channel‐group names from the STRMGen API.
+    """
+    token = refresh_access_token_if_needed()
+    headers = {"Authorization": f"Bearer {token}"}
+    url = f"{settings.api_base}/api/channels/streams/groups/"
+    resp = requests.get(url, headers=headers, timeout=10)
+    resp.raise_for_status()
+    return resp.json()

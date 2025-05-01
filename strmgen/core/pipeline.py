@@ -16,7 +16,7 @@ from ..services.streams import fetch_streams_by_group_name
 from ..services._24_7 import process_24_7
 from ..services.movies import process_movie
 from ..services.tv import process_tv
-from .logger import setup_logger, LOG_PATH
+from .logger import setup_logger
 
 logger = setup_logger(__name__)
 

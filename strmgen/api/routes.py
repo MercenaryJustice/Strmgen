@@ -1,8 +1,12 @@
 # strmgen/api/routes.py
 
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query, Body
+from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
+from ..core.state import set_reprocess, list_skipped, update_skipped_reprocess
+from ..services.tmdb import fetch_movie_details, fetch_tv_details
 
 import json
 import asyncio
@@ -78,7 +82,7 @@ async def update_schedule(u: ScheduleUpdate):
 #
 # Logs
 #
-@router.get("/logs")
+@router.get("/api/logs")
 async def get_logs(limit: Optional[int] = None):
     if not LOG_PATH.exists():
         return {"total": 0, "logs": []}
@@ -89,7 +93,7 @@ async def get_logs(limit: Optional[int] = None):
         lines = all_lines
     return {"total": len(all_lines), "logs": lines}
 
-@router.post("/clear_logs")
+@router.post("/api/clear_logs")
 async def clear_logs():
     try:
         LOG_PATH.write_text("")
@@ -99,7 +103,7 @@ async def clear_logs():
         raise HTTPException(500, "Could not clear logs")
     return {"status": "cleared"}
 
-@router.websocket("/logs")
+@router.websocket("/api/logs")
 async def websocket_logs(ws: WebSocket):
     await ws.accept()
     if not LOG_PATH.exists():
@@ -170,3 +174,54 @@ async def api_stream_alive(stream_id: int):
     if not st:
         raise HTTPException(404, "Stream not found")
     return {"alive": is_stream_alive(st["url"])}
+
+
+@router.get("/api/skipped-streams")
+async def api_list_skipped(stream_type: str | None = Query(None)):
+    """
+    List all skipped streams, optionally filtered by stream_type.
+    """
+    rows = list_skipped(stream_type) if stream_type else list_skipped(None)
+    return {"skipped": rows}
+
+@router.post("/api/skipped-streams/{stream_type}/{tmdb_id}/reprocess")
+async def api_set_reprocess(
+    stream_type: str,
+    tmdb_id: int,
+    payload: dict = Body(...),
+):
+    """
+    Update the `reprocess` flag for a given skipped stream.
+    """
+    if "reprocess" not in payload:
+        raise HTTPException(400, "Missing 'reprocess' in body")
+    update_skipped_reprocess(tmdb_id, stream_type, bool(payload["reprocess"]))
+    return {"status": "ok"}
+
+
+@router.get(
+    "/api/tmdb/info/{stream_type}/{tmdb_id}",
+    response_model=dict,       # or a more specific schema of your choosing
+)
+async def api_tmdb_info(stream_type: str, tmdb_id: int):
+    if stream_type.lower() == "movie":
+        info = fetch_movie_details(tmdb_id)
+    else:
+        info = fetch_tv_details(tmdb_id)
+
+    if not info:
+        raise HTTPException(404, f"No TMDb info for {stream_type} {tmdb_id}")
+
+    # this converts Pydantic models (and any other odd types) into plain JSON-able dicts
+    payload = jsonable_encoder(info)
+    return JSONResponse(content=payload)
+
+
+class ReprocessToggle(BaseModel):
+    tmdb_id: int
+    allow:   bool
+
+@router.post("/api/skipped_streams")
+async def toggle_reprocess(toggle: ReprocessToggle):
+    set_reprocess(toggle.tmdb_id, toggle.allow)
+    return {"status": "ok"}

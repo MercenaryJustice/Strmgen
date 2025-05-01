@@ -1,4 +1,3 @@
-import re
 import shutil
 
 from typing import Optional
@@ -6,7 +5,8 @@ from pathlib import Path
 
 from opensubtitlescom import OpenSubtitles
 from ..core.config import settings
-from ..core.utils import clean_name, safe_mkdir, ensure_str
+from .tmdb import Movie
+from ..core.utils import clean_name, safe_mkdir
 from ..core.utils import setup_logger
 logger = setup_logger(__name__)
 
@@ -79,37 +79,10 @@ def _download_and_write(params: dict, filename: str, folder: Path) -> None:
             logger.exception(f"[SUB] ⚠️ Failed to download/save subtitles: {e}")
 
 
-def _normalize_srt(content: str) -> str:
-    """
-    Normalize SRT content: renumber indexes and ensure Emby-compatible structure.
-    """
-    # Split subtitle blocks using double line breaks
-    blocks = re.split(r'\r?\n\r?\n', content.strip())
-    normalized = []
-
-    index = 1
-    for block in blocks:
-        lines = block.strip().splitlines()
-        if len(lines) >= 2 and "-->" in lines[0]:  # missing index line
-            timestamp = lines[0]
-            text = lines[1:]
-        elif len(lines) >= 3 and "-->" in lines[1]:  # valid block
-            timestamp = lines[1]
-            text = lines[2:]
-        else:
-            continue  # skip malformed
-
-        normalized.append(f"{index}\n{timestamp}\n" + "\n".join(text))
-        index += 1
-
-    return "\n\n".join(normalized) + "\n"
-
-
-
-def download_movie_subtitles(meta: dict, folder: Path, tmdb_id: Optional[str] = None) -> None:
+def download_movie_subtitles(meta: Movie, folder: Path, tmdb_id: Optional[str] = None) -> None:
     if not settings.opensubtitles_download or not meta:
         return
-    filename = f"{clean_name(meta.get('title', ''))}.en.srt"
+    filename = f"{clean_name(meta.title)}.en.srt"
     filepath = folder / filename
     if filepath.exists():
         logger.info(f"[SUB] Skipping download, subtitle already exists: {filepath}")
@@ -120,8 +93,8 @@ def download_movie_subtitles(meta: dict, folder: Path, tmdb_id: Optional[str] = 
         params["tmdb_id"] = tmdb_id
     else:
         params.update({
-            "query": meta.get("title", ""),
-            "year": meta.get("release_date", "")[:4]
+            "query": meta.title,
+            "year": meta.release_date[:4]
         })
 
     _download_and_write(params, filename, folder)
@@ -136,7 +109,7 @@ def download_episode_subtitles(show: str, season: int, ep: int, folder: Path, tm
         logger.info(f"[SUB] Skipping download, subtitle already exists: {filepath}")
         return
 
-    params = {
+    params: dict[str, str | int] = {
         "season_number": season,
         "episode_number": ep,
         "languages": "en"

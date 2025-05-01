@@ -1,4 +1,3 @@
-import re
 from pathlib import Path
 from typing import Optional, Dict
 
@@ -7,7 +6,7 @@ from .subtitles import download_movie_subtitles
 from .streams import write_strm_file
 from ..core.models import DispatcharrStream
 from .tmdb import Movie, get_movie, download_if_missing
-from ..core.utils import clean_name, target_folder, write_if, write_movie_nfo, tmdb_missing_nfo_movie_fields, filter_by_threshold
+from ..core.utils import clean_name, target_folder, write_if, write_movie_nfo, filter_by_threshold
 from ..core.logger import setup_logger
 from ..core.state import mark_skipped, is_skipped
 
@@ -112,4 +111,4 @@ def process_movie(
     if settings.opensubtitles_download and movie:
         logger.info("[MOVIE] 🔽 Downloading subtitles for: %s", title)
         tmdb_id = movie.raw.get("imdb_id") or str(movie.id)
-        download_movie_subtitles(title, folder, tmdb_id=tmdb_id)
+        download_movie_subtitles(movie, folder, tmdb_id=tmdb_id)

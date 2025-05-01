@@ -86,7 +86,7 @@ def write_assets(
             write_tvshow_nfo(mshow.raw, show_nfo_path)
             _written_show_nfos.add(show)
             if settings.update_tv_series_nfo:
-                return
+                return True
 
 
         # Download poster and backdrop (if missing)

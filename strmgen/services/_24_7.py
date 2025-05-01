@@ -1,10 +1,8 @@
 
 import re
 from pathlib import Path
-from typing import Optional
 
 from ..core.config import settings
-from .subtitles import download_movie_subtitles, download_episode_subtitles
 from .streams import write_strm_file
 from .tmdb import search_any_tmdb
 from ..core.utils import clean_name, target_folder, write_if, write_movie_nfo, filter_by_threshold
@@ -17,21 +15,11 @@ RE_24_7_CLEAN  = re.compile(r"(?i)\b24[/-]7\b[\s\-:]*")
 
 _skipped_247 = set()
 
-def meets_thresholds(meta: dict) -> bool:
-    lang = settings.tmdb_language.split("-")[0].casefold()
-    if (not meta.get("original_language", "").casefold() == lang):
-        return False
-    if settings.check_tmdb_thresholds:
-        return (
-            meta.get("vote_average", 0) >= settings.minimum_tmdb_rating and
-            meta.get("vote_count", 0) >= settings.minimum_tmdb_votes and
-            meta.get("popularity", 0) >= settings.minimum_tmdb_popularity
-        )
-    return True
 
 
+from typing import Dict
 
-def process_24_7(stream: DispatcharrStream, root: Path, group: str, headers: dict, url: str):
+def process_24_7(stream: DispatcharrStream, root: Path, group: str, headers: Dict[str, str], url: str):
     title = clean_name(RE_24_7_CLEAN.sub("", stream.name))
     if title in _skipped_247:
         return

@@ -29,7 +29,7 @@ def _request_with_refresh(
         try:
             body = r.json()
         except ValueError:
-            body = {}
+            body: Dict[str, Any] = {}
         if body.get("code") == "token_not_valid":
             logger.info("[AUTH] 🔄 Token expired, refreshing & retrying")
             new_token = get_access_token()
@@ -39,7 +39,7 @@ def _request_with_refresh(
 
 def fetch_streams_by_group_name(
     group_name: str,
-    headers: dict
+    headers: Dict[str, str]
 ) -> List[Stream]:
     """
     Fetch all streams for a given channel group, with automatic token refresh,
@@ -124,7 +124,7 @@ def write_strm_file(
         logger.warning("[STRM] ⚠️ Stream #%d has no URL, skipping", stream.id)
         return False
 
-    if not is_stream_alive(stream.url, timeout):
+    if not is_stream_alive(stream.id, headers, timeout):
         logger.warning("[STRM] ⚠️ Stream #%d unreachable, skipping", stream.id)
         return False
 

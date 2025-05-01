@@ -44,7 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function updateButtons() {
     try {
-      const res         = await fetch('/api/status');
+      const res         = await fetch('/api/v1/process/status');
       const { running } = await res.json();
 
       // if we transitioned from running→not running, show completion
@@ -69,7 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
     runBtn.disabled = true;
     runMsg.textContent = 'Starting…';
     try {
-      const res = await fetch('/api/run', { method: 'POST' });
+      const res = await fetch('/api/v1/process/run_now', { method: 'POST' });
       if (!res.ok) throw new Error(await res.text());
       runMsg.textContent = 'Pipeline started';
       // optimistic UI flip
@@ -87,7 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
     stopBtn.disabled = true;
     runMsg.textContent = 'Stopping…';
     try {
-      const res = await fetch('/api/stop', { method: 'POST' });
+      const res = await fetch('/api/v1/process/stop_now', { method: 'POST' });
       if (!res.ok) throw new Error(await res.text());
       runMsg.textContent = 'Stop signal sent';
     } catch(err) {
@@ -109,7 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function loadSchedule(){
     try {
-      const res = await fetch('/api/schedule');
+      const res = await fetch('/api/v1/schedule/get_schedule');
       if (!res.ok) throw new Error(await res.text());
       const { enabled, hour, minute, next_run, last_run } = await res.json();
 
@@ -135,7 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
     saveBtn.disabled = true;
     schedMsg.textContent = 'Saving…';
     try {
-      const res = await fetch('/api/schedule', {
+      const res = await fetch('/api/v1/schedule/update_schedule', {
         method: 'POST',
         headers: { 'Content-Type':'application/json' },
         body: JSON.stringify({ hour, minute })

@@ -16,6 +16,16 @@
       <input id="token_url" type="text" name="token_url" value="{{ config.token_url }}" required/>
       <div class="setting-help">Path to the authentication token endpoint (e.g., /api/accounts/token/)</div>
     </div>
+    <div class="setting-item">
+      <label for="token_url">Dispatcharr Access Token</label>
+      <input id="token_url" type="password" name="access" value="{{ config.access }}"/>
+      <div class="setting-help">Dispatcharr access token</div>
+    </div>
+    <div class="setting-item">
+      <label for="token_url">Dispatcharr Refresh Token</label>
+      <input id="token_url" type="password" name="refresh" value="{{ config.refresh }}"/>
+      <div class="setting-help">Dispatcharr refresh token</div>
+    </div>
   </div>
 
   <!-- Credentials -->

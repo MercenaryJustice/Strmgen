@@ -39,7 +39,7 @@ def logs_page(request: Request):
     )
 
 
-@router.get("/settings", response_class=HTMLResponse)
+@router.get("/settings", include_in_schema=False, response_class=HTMLResponse)
 async def settings_page(request: Request):
     # Load existing settings
     from typing import Any
@@ -97,7 +97,7 @@ async def save_settings(request: Request):
 
 
 
-@router.get("/skipped", response_class=HTMLResponse)
+@router.get("/skipped", include_in_schema=False, response_class=HTMLResponse)
 async def skipped_page(request: Request):
     return templates.TemplateResponse("skipped.html", {"request": request})
 

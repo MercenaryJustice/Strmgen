@@ -62,7 +62,7 @@ window.addEventListener("DOMContentLoaded", () => {
       {title:"Name",      field:"name",        headerFilter:"input", widthGrow:2},
       {title:"Reprocess?",field:"reprocess",   formatter:"tickCross", sorter:"boolean", headerFilter:"tickCross", cellClick:(e,cell)=>{
           let d = cell.getRow().getData(); d.reprocess = !d.reprocess;
-          fetch(`/api/skipped-streams/${d.tmdb_id}/reprocess`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({allow:d.reprocess}) });
+          fetch(`/api/v1/streams/skipped_streams/${d.stream_type}/${d.tmdb_id}/reprocess`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({allow:d.reprocess}) });
           cell.getRow().update({reprocess:d.reprocess});
       }},
       {title:"Action",    formatter:()=>"<button class='show-info'>Show Info</button>", hozAlign:"center", width:100, cellClick:(e,cell)=>{
@@ -76,7 +76,7 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   async function refresh() {
-  const res = await fetch('/api/skipped-streams');
+  const res = await fetch('/api/v1/streams/skipped_streams');
   if (!res.ok) return console.error('Failed to load skipped streams');
   const { skipped } = await res.json();
   table.setData(skipped).then(()=>{
@@ -115,7 +115,7 @@ window.addEventListener("DOMContentLoaded", () => {
     detailRow.innerHTML = `<td colspan="${colCount}"><div class="detail-container">Loading details...</div></td>`;
     el.parentNode.insertBefore(detailRow, nxt);
 
-    const res = await fetch(`/api/tmdb/info/${d.stream_type}/${d.tmdb_id}?append_to_response=credits`);
+    const res = await fetch(`/api/v1/tmdb/info/${d.stream_type}/${d.tmdb_id}?append_to_response=credits`);
     if(!res.ok) {
       detailRow.firstChild.innerHTML = `Error ${res.status}`;
       return;

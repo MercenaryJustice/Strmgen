@@ -5,16 +5,23 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
-from strmgen.api.routes import router as api_router
+from strmgen.api.routers import logs, process, schedule, streams, tmdb
 from strmgen.web_ui.routes import router as ui_router
-
+from strmgen.core.auth import get_access_token
 from strmgen.core.pipeline import schedule_on_startup
 
 # ─── FastAPI & lifespan ─────────────────────────────────────────────────────
 app = FastAPI(title="STRMGen API & UI", debug=True)
 
-app.include_router(api_router, prefix="/api")
+# Web UI routes
+app.include_router(ui_router)
+
+# API v1 domain routers
+app.include_router(streams.router, prefix="/api/v1")
+app.include_router(schedule.router, prefix="/api/v1")
+app.include_router(logs.router, prefix="/api/v1")
+app.include_router(process.router, prefix="/api/v1")
+app.include_router(tmdb.router, prefix="/api/v1")
 
 # ─── Static / UI ─────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent
@@ -25,13 +32,12 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 async def favicon():
     return FileResponse(STATIC_DIR / "img" / "strmgen_icon.png")
 
-app.include_router(api_router)
-app.include_router(ui_router)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # start the scheduler and schedule the job
     schedule_on_startup()
+    get_access_token()
     try:
         yield
     finally:
@@ -39,9 +45,3 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown(wait=False)
 
 app.router.lifespan_context = lifespan
-
-# ─── Schedule endpoints ─────────────────────────────────────────────────────
-class ScheduleUpdate(BaseModel):
-    hour: int
-    minute: int
-

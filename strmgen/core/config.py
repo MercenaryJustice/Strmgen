@@ -32,6 +32,10 @@ class Settings(BaseModel):
     password:        str
     stream_base_url: str
 
+    # Runtime tokens (populated later)
+    access:  Optional[str]
+    refresh: Optional[str]
+
     # Output & directories
     clean_output_dir: bool
     output_root:      Path
@@ -56,10 +60,6 @@ class Settings(BaseModel):
     update_stream_link:       bool
     only_updated_streams:     bool
     last_modified_days: int = 0         # Number of days after which a stream’s `updated_at` is considered stale.
-
-    # Runtime tokens (populated later)
-    access:  Optional[str]
-    refresh: Optional[str]
 
     # TMDb
     tmdb_api_key:         Optional[str]
@@ -138,3 +138,4 @@ settings: Settings = Settings(**_json_cfg)
 def reload_settings():
     global settings
     settings = json.loads(CONFIG_PATH.read_text())
+

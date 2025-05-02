@@ -7,20 +7,22 @@ from strmgen.core.pipeline import (
     processor_thread,
     stop_event
 )
+from strmgen.api.schemas import StatusResponse
+
 router = APIRouter(prefix="/process", tags=["Control"])
 
-@router.post("/run_now")
+@router.post("/run")
 async def run_now():
     start_background_run()
     return {"status": "started"}
 
-@router.post("/stop_now")
+@router.post("/stop")
 async def stop_now():
     if not processor_thread or not processor_thread.is_alive():
         raise HTTPException(409, "Not running")
     stop_event.set()
     return {"status": "stopping"}
 
-@router.get("/status")
+@router.get("/status", response_model=StatusResponse)
 async def status():
-    return {"running": bool(processor_thread and processor_thread.is_alive())}
+    return StatusResponse(running=bool(processor_thread and processor_thread.is_alive()))

@@ -4,24 +4,25 @@ import asyncio
 from typing import Optional
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from strmgen.core.logger import LOG_PATH, setup_logger
+from strmgen.api.schemas import LogsResponse, ClearResponse
 
 logger = setup_logger(__name__)
 
 
 router = APIRouter(prefix="/logs", tags=["Logs"])
 
-@router.get("/get_logs")
+@router.get("/logs", response_model=LogsResponse)
 async def get_logs(limit: Optional[int] = None):
     if not LOG_PATH.exists():
-        return {"total": 0, "logs": []}
+        return LogsResponse(total=0, logs=[])
     all_lines = LOG_PATH.read_text().splitlines()
     if limit:
         lines = all_lines[-limit:]
     else:
         lines = all_lines
-    return {"total": len(all_lines), "logs": lines}
+    return LogsResponse(total=len(all_lines), logs=lines)
 
-@router.post("/clear_logs")
+@router.post("/clear-logs", response_model=ClearResponse, status_code=200)
 async def clear_logs():
     try:
         LOG_PATH.write_text("")
@@ -29,9 +30,9 @@ async def clear_logs():
     except Exception:
         logger.exception("Could not clear logs")
         raise HTTPException(500, "Could not clear logs")
-    return {"status": "cleared"}
+    return ClearResponse(status="cleared")
 
-@router.websocket("/websocket_logs")
+@router.websocket("/websocket-logs")
 async def websocket_logs(ws: WebSocket):
     await ws.accept()
     if not LOG_PATH.exists():

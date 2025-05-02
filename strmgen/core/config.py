@@ -3,7 +3,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-
+from fastapi import Depends
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -135,7 +135,28 @@ class Settings(BaseModel):
 # ─── 4) Instantiate from your JSON ────────────────────────────────────────────
 settings: Settings = Settings(**_json_cfg)
 
-def reload_settings():
+def reload_settings() -> None:
+    """
+    Re-read config.json (and .env) and re-instantiate the Pydantic Settings
+    so that our FastAPI dependency always returns a Settings instance.
+    """
     global settings
-    settings = json.loads(CONFIG_PATH.read_text())
+    # If you're using BaseSettings with settings_file, simply:
+    settings = Settings()
 
+    # Or, if you manually load the JSON first:
+    # import json
+    # data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    # settings = Settings(**data)
+
+def get_settings() -> Settings:
+    return settings
+
+def save_settings(cfg: Settings) -> None:
+    """
+    Persist the given Settings back to disk (config.json).
+    """
+    # Dump only the JSON‐serializable data
+    data = cfg.model_dump(mode="json")  # pydantic v2; use .dict() if on v1
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)

@@ -32,9 +32,9 @@
     const limitSelect  = document.getElementById("limit-select");
     const loadMoreBtn  = document.getElementById("load-more-btn");
     const protocol     = window.location.protocol === "https:" ? "wss" : "ws";
-    const wsUrl        = `${protocol}://${window.location.host}/api/v1/logs/websocket_logs`;
-    const apiLogs      = "/api/v1/logs/get_logs";
-    const apiClear     = "/api/v1/logs/clear_logs";
+    const wsUrl        = `${protocol}://${window.location.host}/api/v1/logs/websocket-logs`;
+    const apiLogs      = "/api/v1/logs/logs";
+    const apiClear     = "/api/v1/logs/clear-logs";
 
     let filterText   = "";
     let limitStep    = parseInt(limitSelect.value, 10);

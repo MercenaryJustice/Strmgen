@@ -19,11 +19,11 @@ logger = setup_logger(__name__)
 
 router = APIRouter(prefix="/streams", tags=["Streams"])
 
-@router.get("/stream_groups", response_model=List[str])
+@router.get("/stream-groups", response_model=List[str])
 async def api_groups():
     return fetch_groups()
 
-@router.get("/streams_by_group/{group}")
+@router.get("/streams-by-group/{group}")
 async def api_streams(group: str, request: Request):
     try:
         headers = dict(request.headers)
@@ -32,7 +32,7 @@ async def api_streams(group: str, request: Request):
         logger.error("Failed fetching streams: %s", e)
         raise HTTPException(500, "Error fetching streams")
 
-@router.get("/stream_by_id/{stream_id}")
+@router.get("/stream-by-id/{stream_id}")
 async def api_stream(stream_id: int, request: Request):
     headers = dict(request.headers)
     data = get_stream_by_id(stream_id, headers)
@@ -40,7 +40,7 @@ async def api_stream(stream_id: int, request: Request):
         raise HTTPException(404, "Stream not found")
     return data
 
-@router.get("/is_stream_alive/{stream_id}/alive")
+@router.get("/is-stream-alive/{stream_id}/alive")
 async def api_stream_alive(stream_id: int, request: Request):
     headers = dict(request.headers)
     st = get_stream_by_id(stream_id, headers)
@@ -48,7 +48,7 @@ async def api_stream_alive(stream_id: int, request: Request):
         raise HTTPException(404, "Stream not found")
     return {"alive": is_stream_alive(st["url"])}
 
-@router.get("/skipped_streams", response_model=List[SkippedStream])
+@router.get("/skipped-streams", response_model=List[SkippedStream])
 async def skipped_streams(stream_type: str | None = Query(None)):
     """
     List all skipped streams, optionally filtered by stream_type.
@@ -57,7 +57,7 @@ async def skipped_streams(stream_type: str | None = Query(None)):
     rows = list_skipped(stream_type) if stream_type else list_skipped(None)
     return rows
 
-@router.post("/skipped_streams/{stream_type}/{tmdb_id}/reprocess")
+@router.post("/skipped-streams/{stream_type}/{tmdb_id}/reprocess")
 async def api_set_reprocess(
     stream_type: str,
     tmdb_id: int,

@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from difflib import SequenceMatcher
 from typing import Optional, Dict, List, Any
+from ..core.http import session as TMDB_SESSION
 from ..core.config import settings
 from ..core.utils import clean_name
 from ..core.logger import setup_logger
@@ -114,7 +115,7 @@ class EpisodeMeta:
     vote_count: int
     raw: Dict[str, Any]
 
-TMDB_SESSION = requests.Session()
+
 DOWNLOAD_EXECUTOR = ThreadPoolExecutor(max_workers=8)
 TMDB_BASE = "https://api.themoviedb.org/3"
 TMDB_IMG_BASE = "https://image.tmdb.org/t/p"
@@ -187,7 +188,7 @@ def get_movie(title: str, year: Optional[int]) -> Optional[Movie]:
                 "language": settings.tmdb_language,
                 "append_to_response": ",".join(append_items),
             }
-            resp = requests.get(url, params=fetch_params, timeout=10)
+            resp = TMDB_SESSION.get(url, params=fetch_params, timeout=10)
             resp.raise_for_status()
             raw = resp.json()
 
@@ -287,7 +288,7 @@ def fetch_movie_details(tmdb_id: int) -> Optional[Movie]:
     }
 
     try:
-        resp = requests.get(url, params=params, timeout=10)
+        resp = TMDB_SESSION.get(url, params=params, timeout=10)
         resp.raise_for_status()
         raw = resp.json()
 
@@ -361,7 +362,7 @@ def fetch_tv_details(query: str) -> Optional[TVShow]:
         "query":          query,
     }
     try:
-        sr = requests.get(search_url, params=search_params, timeout=10)
+        sr = TMDB_SESSION.get(search_url, params=search_params, timeout=10)
         sr.raise_for_status()
         results = sr.json().get("results", [])
         if not results:
@@ -380,7 +381,7 @@ def fetch_tv_details(query: str) -> Optional[TVShow]:
             "language":           settings.tmdb_language,
             "append_to_response": "credits",
         }
-        dr = requests.get(detail_url, params=detail_params, timeout=10)
+        dr = TMDB_SESSION.get(detail_url, params=detail_params, timeout=10)
         dr.raise_for_status()
         data = dr.json()
 
@@ -536,7 +537,7 @@ def _load_tv_genres() -> None:
         "language": settings.tmdb_language,
         "api_key": settings.tmdb_api_key
     }
-    resp = requests.get(url, params=params, timeout=10)
+    resp = TMDB_SESSION.get(url, params=params, timeout=10)
     resp.raise_for_status()
     for g in resp.json().get("genres", []):
         _tv_genre_map[g["id"]] = g["name"]

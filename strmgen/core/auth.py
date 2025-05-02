@@ -3,13 +3,13 @@ import requests
 import json
 from pathlib import Path
 from typing import Optional, Dict, Any
-from .config import settings, BASE_DIR
-from .utils import setup_logger
+from strmgen.core.config import settings, BASE_DIR
+from strmgen.core.utils import setup_logger
 from requests import RequestException
 
-logger = setup_logger(__name__)
+from strmgen.core.http import session as API_SESSION
 
-API_SESSION = requests.Session()
+logger = setup_logger(__name__)
 
 CONFIG_PATH: Path = BASE_DIR / "config.json"
 
@@ -81,5 +81,5 @@ def refresh_access_token_if_needed() -> Optional[str]:
         if r.status_code == 401:
             return get_access_token()
         return access
-    except requests.RequestException:
+    except RequestException:
         return get_access_token()

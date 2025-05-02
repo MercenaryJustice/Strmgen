@@ -4,6 +4,7 @@ import requests
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 from urllib.parse import quote_plus
+from ..core.http import session as API_SESSION
 from ..core.config import settings
 from ..core.utils import safe_mkdir
 from ..core.utils import setup_logger
@@ -11,7 +12,6 @@ from ..core.auth import get_access_token, refresh_access_token_if_needed
 from ..core.models import Stream, DispatcharrStream
 logger = setup_logger(__name__)
 
-API_SESSION = requests.Session()
 
 def _request_with_refresh(
     method: str,
@@ -208,6 +208,6 @@ def fetch_groups() -> List[str]:
     token = refresh_access_token_if_needed()
     headers = {"Authorization": f"Bearer {token}"}
     url = f"{settings.api_base}/api/channels/streams/groups/"
-    resp = requests.get(url, headers=headers, timeout=10)
+    resp = API_SESSION.get(url, headers=headers, timeout=10)
     resp.raise_for_status()
     return resp.json()

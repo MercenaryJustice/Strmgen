@@ -170,11 +170,11 @@ def register_startup(app: FastAPI) -> None:
     @app.on_event("startup")
     async def _initial_fetch() -> None:
         from strmgen.core.auth import get_access_token
-        await get_access_token()
+        get_access_token()
         
     # 2) Then refresh every 15 minutes, auto-cancelled on shutdown
     @app.on_event("startup")
     @repeat_every(seconds=15 * 60, raise_exceptions=True)
     async def _periodic_refresh() -> None:
         from strmgen.core.auth import get_access_token
-        await get_access_token()
+        get_access_token()

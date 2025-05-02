@@ -3,14 +3,10 @@
 import threading
 import requests
 import fnmatch
-import json
 from pathlib import Path
-from datetime import datetime, timezone
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
-from apscheduler.events import EVENT_JOB_EXECUTED
+from datetime import datetime
 
-from .config import settings, CONFIG_PATH, _json_cfg
+from .config import settings
 from .auth import refresh_access_token_if_needed
 from ..services.streams import fetch_streams_by_group_name
 from ..services._24_7 import process_24_7
@@ -18,22 +14,22 @@ from ..services.movies import process_movie
 from ..services.tv import process_tv
 from .logger import setup_logger
 
+from celery import shared_task
+
 logger = setup_logger(__name__)
 
 # ─── Scheduler + history ────────────────────────────────────────────────────
-scheduler = AsyncIOScheduler()
 schedule_history: dict[str, datetime] = {}
 
-def _record_daily_run(event):
-    if event.job_id == "daily_run" and event.exception is None:
-        now = datetime.now(timezone.utc)
-        schedule_history["daily_run"] = now
-        # also persist last_run in config.json
-        _json_cfg["last_run"] = now.isoformat()
-        try:
-            CONFIG_PATH.write_text(json.dumps(_json_cfg, indent=2), encoding="utf-8")
-        except Exception:
-            logger.exception("Failed to persist last_run to config.json")
+@shared_task(name="strmgen.core.pipeline.run_pipeline")
+def run_pipeline():
+    """
+    Celery task wrapper around your CLI/main pipeline.
+    """
+    # If your cli_main currently takes a stop_event, you can
+    # refactor it to pull a global flag or simply run to completion.
+    cli_main()
+
 
 
 # ─── Thread‐based runner ─────────────────────────────────────────────────────
@@ -42,7 +38,7 @@ stop_event = threading.Event()
 
 def _thread_target():
     try:
-        cli_main(stop_event=stop_event)
+        cli_main()
     except Exception:
         logger.exception("Error in pipeline thread")
 
@@ -66,32 +62,13 @@ def stop_background_run():
 def is_running() -> bool:
     return bool(processor_thread and processor_thread.is_alive())
 
-def schedule_on_startup():
-    """Call this once at app startup to configure the APScheduler job (if enabled)."""
-    scheduler.start()
-    if settings.enable_scheduled_task:
-        trigger = CronTrigger(
-            hour=settings.scheduled_hour,
-            minute=settings.scheduled_minute
-        )
-        scheduler.add_job(
-            start_background_run,
-            trigger=trigger,
-            id="daily_run",
-            replace_existing=True,
-        )
-        scheduler.add_listener(_record_daily_run, EVENT_JOB_EXECUTED)
-    else:
-        logger.info("Scheduled task disabled")
 
 # ─── Core pipeline logic ─────────────────────────────────────────────────────
-def cli_main(stop_event: threading.Event | None = None):
+def cli_main():
     logger.info("Pipeline starting")
     token = refresh_access_token_if_needed()
     headers = {"Authorization": f"Bearer {token}"}
 
-    def should_stop() -> bool:
-        return stop_event is not None and stop_event.is_set()
 
     # 1) fetch all group names
     try:
@@ -127,9 +104,6 @@ def cli_main(stop_event: threading.Event | None = None):
         *( (g, process_tv,    "TV")   for g in matched_tv     ),
         *( (g, process_movie, "Movie")for g in matched_movies )
     ]:
-        if should_stop():
-            logger.info("Stopped before %s group %s", label, grp)
-            return
 
         logger.info("Processing %s group: %s", label, grp)
         try:
@@ -139,10 +113,6 @@ def cli_main(stop_event: threading.Event | None = None):
             continue
 
         for stream in streams:
-            if should_stop():
-                logger.info("Stopped during %s group %s", label, grp)
-                return
-
             logger.info("  %s → %s (ID %s)", label, stream.name, stream.id)
             proc_fn(
                 stream,
@@ -151,13 +121,7 @@ def cli_main(stop_event: threading.Event | None = None):
                 headers
             )
 
-    # 4) final logging
-    if stop_event.is_set():
-        logger.info("Pipeline was stopped by user")
-    else:
-        logger.info("Pipeline completed successfully")
-
 
 # ─── CLI entrypoint ─────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    cli_main(stop_event=None)
+    cli_main()

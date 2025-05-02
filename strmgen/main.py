@@ -9,7 +9,6 @@ from strmgen.api.routers import logs, process, schedule, streams, tmdb
 from strmgen.api.routers import settings
 from strmgen.web_ui.routes import router as ui_router
 from strmgen.core.auth import get_access_token
-from strmgen.core.pipeline import schedule_on_startup
 from strmgen.core.config import register_startup
 
 # ─── FastAPI & lifespan ─────────────────────────────────────────────────────
@@ -24,7 +23,7 @@ register_startup(app)
 # API v1 domain routers
 api_v1 = APIRouter(prefix="/api/v1", tags=["API"])
 api_v1.include_router(process.router,  prefix="/process")
-api_v1.include_router(schedule.router, prefix="/schedule")
+#api_v1.include_router(schedule.router, prefix="/schedule")
 api_v1.include_router(streams.router,  prefix="/streams")
 api_v1.include_router(logs.router,     prefix="/logs")
 api_v1.include_router(tmdb.router,     prefix="/tmdb")
@@ -42,15 +41,4 @@ async def favicon():
     return FileResponse(STATIC_DIR / "img" / "strmgen_icon.png")
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # start the scheduler and schedule the job
-    schedule_on_startup()
-    get_access_token()
-    try:
-        yield
-    finally:
-        from strmgen.core.pipeline import scheduler
-        scheduler.shutdown(wait=False)
 
-app.router.lifespan_context = lifespan

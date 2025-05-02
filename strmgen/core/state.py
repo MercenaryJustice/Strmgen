@@ -1,6 +1,7 @@
 # strmgen/state.py
 
 import sqlite3
+import redis, os
 import json
 from typing import TypedDict, Optional, List, Any
 from dataclasses import is_dataclass, asdict
@@ -10,7 +11,19 @@ from .utils import setup_logger
 
 logger = setup_logger(__name__)
 
+REDIS_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+_r = redis.from_url(REDIS_URL)
+TASK_KEY = "strmgen:current_pipeline_task"
 
+def set_current_task(task_id: str):
+    _r.set(TASK_KEY, task_id)
+
+def get_current_task() -> str | None:
+    return _r.get(TASK_KEY).decode() if _r.exists(TASK_KEY) else None
+
+def clear_current_task():
+    _r.delete(TASK_KEY)
+    
 # ——————————————————————————————————————————————————————————————————————
 # Database setup
 # ——————————————————————————————————————————————————————————————————————

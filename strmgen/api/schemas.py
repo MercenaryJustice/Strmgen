@@ -12,6 +12,7 @@ class ClearResponse(BaseModel):
 
 class StatusResponse(BaseModel):
     running: bool
+    task_id: str | None = None
 
 class ScheduleResponse(BaseModel):
     enabled:   bool

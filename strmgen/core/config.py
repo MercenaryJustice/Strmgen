@@ -1,11 +1,14 @@
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-
-
+from fastapi import Depends, FastAPI
+from fastapi_utils.tasks import repeat_every
 from pydantic import BaseModel, Field, field_validator
+
+
+
 
 
 # ─── 1) Locate your JSON file ─────────────────────────────────────────────────
@@ -13,7 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 # and your JSON lives at:        strmgen/strmgen/config/config.json
 
 BASE_DIR    = Path(__file__).parent           # .../strmgen/strmgen
-CONFIG_PATH = BASE_DIR / "config" / "config.json"
+CONFIG_PATH = BASE_DIR / "config.json"
 
 if not CONFIG_PATH.exists():
     raise FileNotFoundError(f"Cannot find config.json at {CONFIG_PATH!r}")
@@ -31,6 +34,10 @@ class Settings(BaseModel):
     username:        str
     password:        str
     stream_base_url: str
+
+    # Runtime tokens (populated later)
+    access:  Optional[str]
+    refresh: Optional[str]
 
     # Output & directories
     clean_output_dir: bool
@@ -56,10 +63,6 @@ class Settings(BaseModel):
     update_stream_link:       bool
     only_updated_streams:     bool
     last_modified_days: int = 0         # Number of days after which a stream’s `updated_at` is considered stale.
-
-    # Runtime tokens (populated later)
-    access:  Optional[str]
-    refresh: Optional[str]
 
     # TMDb
     tmdb_api_key:         Optional[str]
@@ -96,7 +99,7 @@ class Settings(BaseModel):
     # ─── coerce blank-last_run into None ──────────────────────────────────────
     @field_validator("last_run", mode="before")
     @classmethod
-    def _none_if_blank_last_run(cls, v):
+    def _none_if_blank_last_run(cls, v: Optional[str]) -> Optional[str]:
         if isinstance(v, str) and not v.strip():
             return None
         return v
@@ -122,15 +125,56 @@ class Settings(BaseModel):
     )
 
     @property
-    def MOVIE_TITLE_YEAR_RE(self) -> re.Pattern:
+    def MOVIE_TITLE_YEAR_RE(self) -> re.Pattern[str]:
         # compile once, reuse everywhere
         return re.compile(self.movie_year_regex)
 
 
     @property
-    def TV_SERIES_EPIDOSE_RE(self) -> re.Pattern:
+    def TV_SERIES_EPIDOSE_RE(self) -> re.Pattern[str]:
         # compile once, reuse everywhere
         return re.compile(self.tv_series_episode_regex)
 
 # ─── 4) Instantiate from your JSON ────────────────────────────────────────────
-settings = Settings(**_json_cfg)
+settings: Settings = Settings(**_json_cfg)
+
+def reload_settings() -> None:
+    """
+    Re-read config.json (and .env) and re-instantiate the Pydantic Settings
+    so that our FastAPI dependency always returns a Settings instance.
+    """
+    global settings
+    # If you're using BaseSettings with settings_file, simply:
+    settings = Settings()
+
+    # Or, if you manually load the JSON first:
+    # import json
+    # data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    # settings = Settings(**data)
+
+def get_settings() -> Settings:
+    return settings
+
+def save_settings(cfg: Settings) -> None:
+    """
+    Persist the given Settings back to disk (config.json).
+    """
+    # Dump only the JSON‐serializable data
+    data = cfg.model_dump(mode="json")  # pydantic v2; use .dict() if on v1
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
+def register_startup(app: FastAPI) -> None:
+    # 1) Fetch tokens once at startup
+    @app.on_event("startup")
+    async def _initial_fetch() -> None:
+        from strmgen.core.auth import get_access_token
+        await get_access_token()
+        
+    # 2) Then refresh every 15 minutes, auto-cancelled on shutdown
+    @app.on_event("startup")
+    @repeat_every(seconds=15 * 60, raise_exceptions=True)
+    async def _periodic_refresh() -> None:
+        from strmgen.core.auth import get_access_token
+        await get_access_token()

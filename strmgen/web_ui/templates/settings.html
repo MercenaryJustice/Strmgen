@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h2>Settings</h2>
-<form method="post" class="settings-form">
+<form id="settingsForm" class="settings-form">
 
   <!-- Core Connection -->
   <div class="settings-group">
@@ -15,6 +15,16 @@
       <label for="token_url">Token URL</label>
       <input id="token_url" type="text" name="token_url" value="{{ config.token_url }}" required/>
       <div class="setting-help">Path to the authentication token endpoint (e.g., /api/accounts/token/)</div>
+    </div>
+    <div class="setting-item">
+      <label for="access">Dispatcharr Access Token</label>
+      <input id="access" type="password" name="access" value="{{ config.access }}"/>
+      <div class="setting-help">Dispatcharr access token</div>
+    </div>
+    <div class="setting-item">
+      <label for="refresh">Dispatcharr Refresh Token</label>
+      <input id="refresh" type="password" name="refresh" value="{{ config.refresh }}"/>
+      <div class="setting-help">Dispatcharr refresh token</div>
     </div>
   </div>
 
@@ -187,6 +197,7 @@
     </div>
   </div>
 
+
   <!-- NFO Options -->
   <div class="settings-group">
     <h3>NFO Options</h3>
@@ -237,6 +248,7 @@
       </div>
       <div class="setting-help">Password for OpenSubtitles service</div>
     </div>
+  </div>
 
   <!-- ─── Scheduler Options ────────────────────────────────────────────── -->
   <div class="settings-group">
@@ -279,26 +291,169 @@
         required
       />
     </div>
-  </div>    
-  </div>
+  </div>  
 
   <button type="submit" class="save-button">Save Settings</button>
 </form>
 
 <script>
-document.querySelectorAll('.toggle-password').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const targetId = btn.dataset.target;
-    const input = document.getElementById(targetId);
-    if (!input) return;
-    if (input.type === 'password') {
-      input.type = 'text';
-      btn.textContent = 'Hide';
-    } else {
-      input.type = 'password';
-      btn.textContent = 'Show';
+  const API_BASE = '/api/v1/settings';
+  
+  async function loadSettings() {
+    try {
+      const res = await fetch(API_BASE);
+      if (!res.ok) throw new Error(await res.text());
+      const cfg = await res.json();
+      console.log("Settings payload:", cfg);
+      
+      // CORE CONNECTION
+      document.getElementById('api_base').value        = cfg.api_base;
+      document.getElementById('token_url').value       = cfg.token_url;
+      document.getElementById('access').value          = cfg.access || '';
+      document.getElementById('refresh').value         = cfg.refresh || '';
+  
+      // CREDENTIALS
+      document.getElementById('username').value        = cfg.username;
+      document.getElementById('password').value        = cfg.password;
+  
+      // STREAMING
+      document.getElementById('stream_base_url').value = cfg.stream_base_url;
+      document.querySelector('input[name="skip_stream_check"]').checked      = !!cfg.skip_stream_check;
+      document.querySelector('input[name="only_updated_streams"]').checked   = !!cfg.only_updated_streams;
+      document.getElementById('last_modified_days').value                     = cfg.last_modified_days;
+      document.querySelector('input[name="update_stream_link"]').checked      = !!cfg.update_stream_link;
+  
+      // OUTPUT
+      document.getElementById('output_root').value     = cfg.output_root;
+      document.querySelector('input[name="clean_output_dir"]').checked        = !!cfg.clean_output_dir;
+  
+      // PROCESSING GROUPS
+      document.querySelector('input[name="process_movies_groups"]').checked    = !!cfg.process_movies_groups;
+      document.getElementById('movies_groups_raw').value     = (cfg.movies_groups||[]).join(',');
+      document.querySelector('input[name="process_tv_series_groups"]').checked = !!cfg.process_tv_series_groups;
+      document.getElementById('tv_series_groups_raw').value  = (cfg.tv_series_groups||[]).join(',');
+      document.querySelector('input[name="process_groups_24_7"]').checked      = !!cfg.process_groups_24_7;
+      document.getElementById('groups_24_7_raw').value      = (cfg.groups_24_7||[]).join(',');
+      document.getElementById('remove_strings_raw').value   = (cfg.remove_strings||[]).join(',');
+  
+      // FILENAME PARSING
+      document.getElementById('movie_year_regex').value      = cfg.movie_year_regex;
+      document.getElementById('tv_series_episode_regex').value = cfg.tv_series_episode_regex;
+  
+      // TMDB OPTIONS
+      document.getElementById('tmdb_api_key').value         = cfg.tmdb_api_key || '';
+      document.getElementById('tmdb_language').value        = cfg.tmdb_language;
+      document.querySelector('input[name="tmdb_download_images"]').checked    = !!cfg.tmdb_download_images;
+      document.getElementById('tmdb_image_size').value      = cfg.tmdb_image_size;
+      document.querySelector('input[name="tmdb_create_not_found"]').checked  = !!cfg.tmdb_create_not_found;
+      document.getElementById('minimum_year').value         = cfg.minimum_year;
+      document.querySelector('input[name="check_tmdb_thresholds"]').checked   = !!cfg.check_tmdb_thresholds;
+      document.getElementById('minimum_tmdb_rating').value  = cfg.minimum_tmdb_rating;
+      document.getElementById('minimum_tmdb_votes').value   = cfg.minimum_tmdb_votes;
+      document.getElementById('minimum_tmdb_popularity').value = cfg.minimum_tmdb_popularity;
+  
+      // NFO OPTIONS
+      document.querySelector('input[name="write_nfo"]').checked               = !!cfg.write_nfo;
+      document.querySelector('input[name="write_nfo_only_if_not_exists"]').checked = !!cfg.write_nfo_only_if_not_exists;
+      document.querySelector('input[name="update_tv_series_nfo"]').checked    = !!cfg.update_tv_series_nfo;
+  
+      // SUBTITLES
+      document.querySelector('input[name="opensubtitles_download"]').checked  = !!cfg.opensubtitles_download;
+      document.getElementById('opensubtitles_app_name').value   = cfg.opensubtitles_app_name || '';
+      document.getElementById('opensubtitles_api_key').value    = cfg.opensubtitles_api_key || '';
+      document.getElementById('opensubtitles_username').value   = cfg.opensubtitles_username || '';
+      document.getElementById('opensubtitles_password').value   = cfg.opensubtitles_password || '';
+  
+      // SCHEDULER
+      document.querySelector('input[name="enable_scheduled_task"]').checked = !!cfg.enable_scheduled_task;
+      document.getElementById('scheduled_hour').value    = cfg.scheduled_hour;
+      document.getElementById('scheduled_minute').value  = cfg.scheduled_minute;
+  
+    } catch (err) {
+      console.error('Failed to load settings:', err);
+      alert('Could not load settings');
+    }
+  }
+  
+  document.addEventListener('DOMContentLoaded', loadSettings);
+  
+  document.getElementById('settingsForm').addEventListener('submit', async e => {
+    e.preventDefault();
+  
+    const payload = {
+      api_base:         document.getElementById('api_base').value,
+      token_url:        document.getElementById('token_url').value,
+      access:           document.getElementById('access').value,
+      refresh:          document.getElementById('refresh').value,
+      username:         document.getElementById('username').value,
+      password:         document.getElementById('password').value,
+      stream_base_url:  document.getElementById('stream_base_url').value,
+      skip_stream_check:      document.querySelector('input[name="skip_stream_check"]').checked,
+      only_updated_streams:   document.querySelector('input[name="only_updated_streams"]').checked,
+      last_modified_days:     Number(document.getElementById('last_modified_days').value),
+      update_stream_link:     document.querySelector('input[name="update_stream_link"]').checked,
+      output_root:            document.getElementById('output_root').value,
+      clean_output_dir:       document.querySelector('input[name="clean_output_dir"]').checked,
+      process_movies_groups:  document.querySelector('input[name="process_movies_groups"]').checked,
+      movies_groups:          document.getElementById('movies_groups_raw').value.split(',').map(s=>s.trim()).filter(Boolean),
+      process_tv_series_groups:document.querySelector('input[name="process_tv_series_groups"]').checked,
+      tv_series_groups:       document.getElementById('tv_series_groups_raw').value.split(',').map(s=>s.trim()).filter(Boolean),
+      process_groups_24_7:    document.querySelector('input[name="process_groups_24_7"]').checked,
+      groups_24_7:            document.getElementById('groups_24_7_raw').value.split(',').map(s=>s.trim()).filter(Boolean),
+      remove_strings:         document.getElementById('remove_strings_raw').value.split(',').map(s=>s.trim()).filter(Boolean),
+      movie_year_regex:       document.getElementById('movie_year_regex').value,
+      tv_series_episode_regex:document.getElementById('tv_series_episode_regex').value,
+      tmdb_api_key:           document.getElementById('tmdb_api_key').value,
+      tmdb_language:          document.getElementById('tmdb_language').value,
+      tmdb_download_images:   document.querySelector('input[name="tmdb_download_images"]').checked,
+      tmdb_image_size:        document.getElementById('tmdb_image_size').value,
+      tmdb_create_not_found:  document.querySelector('input[name="tmdb_create_not_found"]').checked,
+      minimum_year:           Number(document.getElementById('minimum_year').value),
+      check_tmdb_thresholds:  document.querySelector('input[name="check_tmdb_thresholds"]').checked,
+      minimum_tmdb_rating:    Number(document.getElementById('minimum_tmdb_rating').value),
+      minimum_tmdb_votes:     Number(document.getElementById('minimum_tmdb_votes').value),
+      minimum_tmdb_popularity:Number(document.getElementById('minimum_tmdb_popularity').value),
+      write_nfo:              document.querySelector('input[name="write_nfo"]').checked,
+      write_nfo_only_if_not_exists: document.querySelector('input[name="write_nfo_only_if_not_exists"]').checked,
+      update_tv_series_nfo:   document.querySelector('input[name="update_tv_series_nfo"]').checked,
+      opensubtitles_download: document.querySelector('input[name="opensubtitles_download"]').checked,
+      opensubtitles_app_name: document.getElementById('opensubtitles_app_name').value,
+      opensubtitles_api_key:  document.getElementById('opensubtitles_api_key').value,
+      opensubtitles_username: document.getElementById('opensubtitles_username').value,
+      opensubtitles_password: document.getElementById('opensubtitles_password').value,
+      enable_scheduled_task:  document.querySelector('input[name="enable_scheduled_task"]').checked,
+      scheduled_hour:         Number(document.getElementById('scheduled_hour').value),
+      scheduled_minute:       Number(document.getElementById('scheduled_minute').value)
+    };
+  
+    try {
+      const res = await fetch(API_BASE, {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error(await res.text());
+      alert('Settings saved successfully');
+    } catch (err) {
+      console.error('Save failed:', err);
+      alert('Failed to save settings');
     }
   });
-});
-</script>
+  </script>
+  
+  <script>
+  document.querySelectorAll('.toggle-password').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = document.getElementById(btn.dataset.target);
+      if (!target) return;
+      if (target.type === 'password') {
+        target.type = 'text';
+        btn.textContent = 'Hide';
+      } else {
+        target.type = 'password';
+        btn.textContent = 'Show';
+      }
+    });
+  });
+  </script>
 {% endblock %}

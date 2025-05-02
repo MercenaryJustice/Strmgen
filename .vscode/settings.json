@@ -2,5 +2,18 @@
   // for newer versions of the Python extension:
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
   // for backwards-compatibility:
-  "python.pythonPath": "${workspaceFolder}/.venv/bin/python"
+  "python.pythonPath": "${workspaceFolder}/.venv/bin/python",
+  // use Pylance as your language server
+  "python.languageServer": "Pylance",
+
+  // show import errors, missing symbols, etc.
+  "python.analysis.typeCheckingMode": "strict",
+  
+  // turn on VS Code’s linting
+  "python.linting.enabled": true,
+  
+  // choose one or more linters:
+  "python.linting.pylintEnabled": true,
+  "python.linting.flake8Enabled": false,   // turn off if you prefer pylint
+  "python.linting.mypyEnabled": true       // optional: mypy will also flag missing imports
 }

@@ -36,46 +36,58 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-  // ─── Run/Stop Logic ────────────────────────────────────────────────────────
+  // ─── Run/Stop UI via WebSocket ────────────────────────────────────────────
   const runBtn  = document.getElementById('run-btn');
   const stopBtn = document.getElementById('stop-btn');
   const runMsg  = document.getElementById('run-msg');
-  let wasRunning = false;
 
-  async function updateButtons() {
-    try {
-      const res         = await fetch('/api/status');
-      const { running } = await res.json();
+  let wasRunning     = false;
+  // rehydrate any recent Run click for grace period
+  let runRequestedAt = Number(localStorage.getItem('runRequestedAt')) || 0;
 
-      // if we transitioned from running→not running, show completion
-      if (wasRunning && !running) {
-        runMsg.textContent = 'Pipeline completed successfully';
-      }
+  // open WS connection for real‑time status
+  const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsUrl  = `${scheme}://${window.location.host}/api/v1/process/ws/status`;
+  const socket = new WebSocket(wsUrl);
 
-      runBtn.disabled       = running;
-      runBtn.style.display  = running ? 'none' : 'inline-block';
-      stopBtn.style.display = running ? 'inline-block' : 'none';
+  socket.addEventListener('open', () => console.log('Status WS connected'));
+  socket.addEventListener('close', () => console.log('Status WS closed'));
 
-      wasRunning = running;
-    } catch(err) {
-      console.error('Status poll failed', err);
+  socket.addEventListener('message', event => {
+    const { running } = JSON.parse(event.data);
+    const now    = Date.now();
+    const inGrace = runRequestedAt && (now - runRequestedAt) < 5000;
+    const effectiveRunning = running;
+    localStorage.removeItem('runRequestedAt');
+    
+    if (wasRunning && !effectiveRunning) {
+      runMsg.textContent = 'Pipeline completed successfully';
     }
-  }
 
-  updateButtons();
-  setInterval(updateButtons, 2000);
+    runBtn.disabled       = effectiveRunning;
+    runBtn.style.display  = effectiveRunning ? 'none' : 'inline-block';
+    stopBtn.style.display = effectiveRunning ? 'inline-block' : 'none';
+    wasRunning = effectiveRunning;
+
+    // clear grace marker once expired
+    if (!inGrace && runRequestedAt) {
+      localStorage.removeItem('runRequestedAt');
+      runRequestedAt = 0;
+    }
+  });
 
   runBtn.addEventListener('click', async () => {
-    runBtn.disabled = true;
+    runBtn.disabled   = true;
     runMsg.textContent = 'Starting…';
     try {
-      const res = await fetch('/api/run', { method: 'POST' });
+      const res = await fetch('/api/v1/process/run', { method: 'POST' });
       if (!res.ok) throw new Error(await res.text());
       runMsg.textContent = 'Pipeline started';
-      // optimistic UI flip
+      runRequestedAt = Date.now();
+      localStorage.setItem('runRequestedAt', runRequestedAt);
       runBtn.style.display  = 'none';
       stopBtn.style.display = 'inline-block';
-      wasRunning = true;
+      wasRunning            = true;
     } catch(err) {
       console.error('Run error', err);
       runMsg.textContent = 'Error starting';
@@ -84,12 +96,14 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   stopBtn.addEventListener('click', async () => {
-    stopBtn.disabled = true;
+    stopBtn.disabled   = true;
     runMsg.textContent = 'Stopping…';
     try {
-      const res = await fetch('/api/stop', { method: 'POST' });
+      const res = await fetch('/api/v1/process/stop', { method: 'POST' });
       if (!res.ok) throw new Error(await res.text());
       runMsg.textContent = 'Stop signal sent';
+      localStorage.removeItem('runRequestedAt');
+      runRequestedAt = 0;
     } catch(err) {
       console.error('Stop error', err);
       runMsg.textContent = 'Error stopping';
@@ -97,7 +111,6 @@ document.addEventListener('DOMContentLoaded', () => {
       stopBtn.disabled = false;
     }
   });
-
 
   // ─── Scheduler UI Logic ───────────────────────────────────────────────────
   const hourInp   = document.getElementById('sched-hour');
@@ -109,16 +122,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function loadSchedule(){
     try {
-      const res = await fetch('/api/schedule');
+      const res = await fetch('/api/v1/schedule/schedule');
       if (!res.ok) throw new Error(await res.text());
       const { enabled, hour, minute, next_run, last_run } = await res.json();
-
       if (!enabled) {
-        // hide card if scheduling is disabled
         document.querySelectorAll('.card')[1].style.display = 'none';
         return;
       }
-
       hourInp.value         = hour;
       minInp.value          = minute;
       nextRunEl.textContent = next_run ? new Date(next_run).toLocaleString() : '—';
@@ -135,16 +145,15 @@ document.addEventListener('DOMContentLoaded', () => {
     saveBtn.disabled = true;
     schedMsg.textContent = 'Saving…';
     try {
-      const res = await fetch('/api/schedule', {
+      const res = await fetch('/api/v1/schedule/schedule', {
         method: 'POST',
-        headers: { 'Content-Type':'application/json' },
+        headers:{ 'Content-Type':'application/json' },
         body: JSON.stringify({ hour, minute })
       });
       if (!res.ok) throw new Error(await res.text());
       const { hour: h, minute: m, next_run } = await res.json();
       schedMsg.textContent = 'Schedule updated';
       nextRunEl.textContent = next_run ? new Date(next_run).toLocaleString() : '—';
-      // reflect any adjustments:
       hourInp.value = h;
       minInp.value  = m;
     } catch(err) {

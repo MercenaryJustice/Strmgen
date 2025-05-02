@@ -17,7 +17,7 @@ from strmgen.core.state import (
 
 logger = setup_logger(__name__)
 
-router = APIRouter(prefix="/streams", tags=["Streams"])
+router = APIRouter(tags=["Streams"])
 
 @router.get("/stream-groups", response_model=List[str])
 async def api_groups():

@@ -9,7 +9,7 @@ from strmgen.core.pipeline import (
 )
 from strmgen.api.schemas import StatusResponse
 
-router = APIRouter(prefix="/process", tags=["Control"])
+router = APIRouter(tags=["Control"])
 
 @router.post("/run")
 async def run_now():

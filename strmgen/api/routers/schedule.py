@@ -7,7 +7,7 @@ from apscheduler.triggers.cron import CronTrigger
 from strmgen.core.config import save_settings, get_settings, Settings
 from strmgen.api.schemas import ScheduleResponse, ScheduleUpdate
 
-router = APIRouter(prefix="/schedule", tags=["Schedule"])
+router = APIRouter(tags=["Schedule"])
 
 
 @router.get("/schedule", response_model=ScheduleResponse)

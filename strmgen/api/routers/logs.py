@@ -9,7 +9,7 @@ from strmgen.api.schemas import LogsResponse, ClearResponse
 logger = setup_logger(__name__)
 
 
-router = APIRouter(prefix="/logs", tags=["Logs"])
+router = APIRouter(tags=["Logs"])
 
 @router.get("/logs", response_model=LogsResponse)
 async def get_logs(limit: Optional[int] = None):

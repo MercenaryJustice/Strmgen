@@ -3,7 +3,7 @@ from strmgen.services.tmdb import fetch_movie_details, fetch_tv_details
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-router = APIRouter(prefix="/tmdb", tags=["TMDb"])
+router = APIRouter(tags=["TMDb"])
 
 
 @router.get(

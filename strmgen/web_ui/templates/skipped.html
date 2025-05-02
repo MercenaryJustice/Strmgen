@@ -78,8 +78,8 @@ window.addEventListener("DOMContentLoaded", () => {
   async function refresh() {
   const res = await fetch('/api/v1/streams/skipped-streams');
   if (!res.ok) return console.error('Failed to load skipped streams');
-  const { skipped } = await res.json();
-  table.setData(skipped).then(()=>{
+   const data = await res.json();
+   table.setData(data).then(()=>{
     if (!filterInput.value.trim()) table.clearFilter();
   });
 }

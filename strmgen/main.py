@@ -1,14 +1,16 @@
 # strmgen/main.py
 
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, APIRouter
 from contextlib import asynccontextmanager
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from strmgen.api.routers import logs, process, schedule, streams, tmdb
+from strmgen.api.routers import settings
 from strmgen.web_ui.routes import router as ui_router
 from strmgen.core.auth import get_access_token
 from strmgen.core.pipeline import schedule_on_startup
+from strmgen.core.config import register_startup
 
 # ─── FastAPI & lifespan ─────────────────────────────────────────────────────
 app = FastAPI(title="STRMGen API & UI", debug=True)
@@ -16,12 +18,19 @@ app = FastAPI(title="STRMGen API & UI", debug=True)
 # Web UI routes
 app.include_router(ui_router)
 
+
+register_startup(app)
+
 # API v1 domain routers
-app.include_router(streams.router, prefix="/api/v1")
-app.include_router(schedule.router, prefix="/api/v1")
-app.include_router(logs.router, prefix="/api/v1")
-app.include_router(process.router, prefix="/api/v1")
-app.include_router(tmdb.router, prefix="/api/v1")
+api_v1 = APIRouter(prefix="/api/v1", tags=["API"])
+api_v1.include_router(process.router,  prefix="/process")
+api_v1.include_router(schedule.router, prefix="/schedule")
+api_v1.include_router(streams.router,  prefix="/streams")
+api_v1.include_router(logs.router,     prefix="/logs")
+api_v1.include_router(tmdb.router,     prefix="/tmdb")
+api_v1.include_router(settings.router, prefix="/settings")
+app.include_router(api_v1)
+
 
 # ─── Static / UI ─────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent

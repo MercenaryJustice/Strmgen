@@ -3,9 +3,12 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-from fastapi import Depends
-
+from fastapi import Depends, FastAPI
+from fastapi_utils.tasks import repeat_every
 from pydantic import BaseModel, Field, field_validator
+
+
+
 
 
 # ─── 1) Locate your JSON file ─────────────────────────────────────────────────
@@ -160,3 +163,18 @@ def save_settings(cfg: Settings) -> None:
     data = cfg.model_dump(mode="json")  # pydantic v2; use .dict() if on v1
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+
+
+def register_startup(app: FastAPI) -> None:
+    # 1) Fetch tokens once at startup
+    @app.on_event("startup")
+    async def _initial_fetch() -> None:
+        from strmgen.core.auth import get_access_token
+        await get_access_token()
+        
+    # 2) Then refresh every 15 minutes, auto-cancelled on shutdown
+    @app.on_event("startup")
+    @repeat_every(seconds=15 * 60, raise_exceptions=True)
+    async def _periodic_refresh() -> None:
+        from strmgen.core.auth import get_access_token
+        await get_access_token()

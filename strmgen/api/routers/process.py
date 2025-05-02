@@ -23,6 +23,6 @@ async def stop_now():
     stop_event.set()
     return {"status": "stopping"}
 
-@router.get("/status", response_model=StatusResponse)
-async def status():
-    return StatusResponse(running=bool(processor_thread and processor_thread.is_alive()))
+@router.get("/status", include_in_schema=False)
+async def pipeline_status():
+    return {"running": bool(processor_thread and processor_thread.is_alive())}

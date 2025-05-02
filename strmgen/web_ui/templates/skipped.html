@@ -62,7 +62,7 @@ window.addEventListener("DOMContentLoaded", () => {
       {title:"Name",      field:"name",        headerFilter:"input", widthGrow:2},
       {title:"Reprocess?",field:"reprocess",   formatter:"tickCross", sorter:"boolean", headerFilter:"tickCross", cellClick:(e,cell)=>{
           let d = cell.getRow().getData(); d.reprocess = !d.reprocess;
-          fetch(`/api/v1/streams/skipped-streams/${d.stream_type}/${d.tmdb_id}/reprocess`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({allow:d.reprocess}) });
+          fetch(`/api/v1/streams/skipped-streams/${d.stream_type}/${d.tmdb_id}/reprocess`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ reprocess: d.reprocess }) });
           cell.getRow().update({reprocess:d.reprocess});
       }},
       {title:"Action",    formatter:()=>"<button class='show-info'>Show Info</button>", hozAlign:"center", width:100, cellClick:(e,cell)=>{
@@ -86,12 +86,12 @@ window.addEventListener("DOMContentLoaded", () => {
 
   filterInput.addEventListener('input', function(){
     const v = this.value.trim();
-    if(v) {
+    if(v){
       table.setFilter([
-        {field:'stream_type', type:'like', value:v},
-        {field:'name',        type:'like', value:v},
-        {field:'group',       type:'like', value:v}
-      ]);
+        { field:"stream_type", type:"like", value:v },
+        { field:"name",        type:"like", value:v },
+        { field:"group",       type:"like", value:v },
+      ], "or"); // ← tell Tabulator to OR these three filters
     } else {
       table.clearFilter();
     }

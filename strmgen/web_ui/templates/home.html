@@ -37,45 +37,68 @@
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   // ─── Run/Stop Logic ────────────────────────────────────────────────────────
-  const runBtn  = document.getElementById('run-btn');
-  const stopBtn = document.getElementById('stop-btn');
-  const runMsg  = document.getElementById('run-msg');
-  let wasRunning = false;
+  const runBtn    = document.getElementById('run-btn');
+  const stopBtn   = document.getElementById('stop-btn');
+  const runMsg    = document.getElementById('run-msg');
+
+  let wasRunning     = false;
+  let pollIntervalId = null;
+
+  // Rehydrate the timestamp if you clicked Run in the last session
+  let runRequestedAt = Number(localStorage.getItem('runRequestedAt')) || 0;
 
   async function updateButtons() {
     try {
       const res         = await fetch('/api/v1/process/status');
       const { running } = await res.json();
 
-      // if we transitioned from running→not running, show completion
-      if (wasRunning && !running) {
+      const now         = Date.now();
+      // still in the 5 s grace after your click?
+      const inGrace     = runRequestedAt && (now - runRequestedAt) < 5000;
+      const effectiveRunning = running || inGrace;
+
+      // show “completed” message if we just transitioned
+      if (wasRunning && !effectiveRunning) {
         runMsg.textContent = 'Pipeline completed successfully';
       }
 
-      runBtn.disabled       = running;
-      runBtn.style.display  = running ? 'none' : 'inline-block';
-      stopBtn.style.display = running ? 'inline-block' : 'none';
+      runBtn.disabled       = effectiveRunning;
+      runBtn.style.display  = effectiveRunning ? 'none' : 'inline-block';
+      stopBtn.style.display = effectiveRunning ? 'inline-block' : 'none';
 
-      wasRunning = running;
+      wasRunning = effectiveRunning;
+
+      // once the 5 s window has passed, clear that saved click
+      if (!inGrace && runRequestedAt) {
+        localStorage.removeItem('runRequestedAt');
+        runRequestedAt = 0;
+      }
+
     } catch(err) {
       console.error('Status poll failed', err);
     }
   }
 
+  // initial poll + repeat every 2 s
   updateButtons();
-  setInterval(updateButtons, 2000);
+  pollIntervalId = setInterval(updateButtons, 2000);
 
   runBtn.addEventListener('click', async () => {
-    runBtn.disabled = true;
+    runBtn.disabled   = true;
     runMsg.textContent = 'Starting…';
     try {
       const res = await fetch('/api/v1/process/run', { method: 'POST' });
       if (!res.ok) throw new Error(await res.text());
       runMsg.textContent = 'Pipeline started';
-      // optimistic UI flip
+
+      // record click time so it survives a page reload
+      runRequestedAt = Date.now();
+      localStorage.setItem('runRequestedAt', runRequestedAt);
+
+      // optimistic flip
       runBtn.style.display  = 'none';
       stopBtn.style.display = 'inline-block';
-      wasRunning = true;
+      wasRunning            = true;
     } catch(err) {
       console.error('Run error', err);
       runMsg.textContent = 'Error starting';
@@ -84,12 +107,16 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   stopBtn.addEventListener('click', async () => {
-    stopBtn.disabled = true;
-    runMsg.textContent = 'Stopping…';
+    stopBtn.disabled    = true;
+    runMsg.textContent  = 'Stopping…';
     try {
       const res = await fetch('/api/v1/process/stop', { method: 'POST' });
       if (!res.ok) throw new Error(await res.text());
       runMsg.textContent = 'Stop signal sent';
+
+      // clear any saved click so UI follows real state
+      localStorage.removeItem('runRequestedAt');
+      runRequestedAt = 0;
     } catch(err) {
       console.error('Stop error', err);
       runMsg.textContent = 'Error stopping';
@@ -98,8 +125,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-
-  // ─── Scheduler UI Logic ───────────────────────────────────────────────────
+  // ─── Scheduler UI Logic (unchanged) ────────────────────────────────────────
   const hourInp   = document.getElementById('sched-hour');
   const minInp    = document.getElementById('sched-minute');
   const saveBtn   = document.getElementById('save-schedule');
@@ -112,13 +138,10 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await fetch('/api/v1/schedule/schedule');
       if (!res.ok) throw new Error(await res.text());
       const { enabled, hour, minute, next_run, last_run } = await res.json();
-
       if (!enabled) {
-        // hide card if scheduling is disabled
         document.querySelectorAll('.card')[1].style.display = 'none';
         return;
       }
-
       hourInp.value         = hour;
       minInp.value          = minute;
       nextRunEl.textContent = next_run ? new Date(next_run).toLocaleString() : '—';
@@ -137,14 +160,13 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const res = await fetch('/api/v1/schedule/schedule', {
         method: 'POST',
-        headers: { 'Content-Type':'application/json' },
+        headers:{ 'Content-Type':'application/json' },
         body: JSON.stringify({ hour, minute })
       });
       if (!res.ok) throw new Error(await res.text());
       const { hour: h, minute: m, next_run } = await res.json();
       schedMsg.textContent = 'Schedule updated';
       nextRunEl.textContent = next_run ? new Date(next_run).toLocaleString() : '—';
-      // reflect any adjustments:
       hourInp.value = h;
       minInp.value  = m;
     } catch(err) {

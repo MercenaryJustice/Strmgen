@@ -36,52 +36,45 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-  // ─── Run/Stop Logic ────────────────────────────────────────────────────────
-  const runBtn    = document.getElementById('run-btn');
-  const stopBtn   = document.getElementById('stop-btn');
-  const runMsg    = document.getElementById('run-msg');
+  // ─── Run/Stop UI via WebSocket ────────────────────────────────────────────
+  const runBtn  = document.getElementById('run-btn');
+  const stopBtn = document.getElementById('stop-btn');
+  const runMsg  = document.getElementById('run-msg');
 
   let wasRunning     = false;
-  let pollIntervalId = null;
-
-  // Rehydrate the timestamp if you clicked Run in the last session
+  // rehydrate any recent Run click for grace period
   let runRequestedAt = Number(localStorage.getItem('runRequestedAt')) || 0;
 
-  async function updateButtons() {
-    try {
-      const res         = await fetch('/api/v1/process/status');
-      const { running } = await res.json();
+  // open WS connection for real‑time status
+  const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsUrl  = `${scheme}://${window.location.host}/api/v1/process/ws/status`;
+  const socket = new WebSocket(wsUrl);
 
-      const now         = Date.now();
-      // still in the 5 s grace after your click?
-      const inGrace     = runRequestedAt && (now - runRequestedAt) < 5000;
-      const effectiveRunning = running || inGrace;
+  socket.addEventListener('open', () => console.log('Status WS connected'));
+  socket.addEventListener('close', () => console.log('Status WS closed'));
 
-      // show “completed” message if we just transitioned
-      if (wasRunning && !effectiveRunning) {
-        runMsg.textContent = 'Pipeline completed successfully';
-      }
-
-      runBtn.disabled       = effectiveRunning;
-      runBtn.style.display  = effectiveRunning ? 'none' : 'inline-block';
-      stopBtn.style.display = effectiveRunning ? 'inline-block' : 'none';
-
-      wasRunning = effectiveRunning;
-
-      // once the 5 s window has passed, clear that saved click
-      if (!inGrace && runRequestedAt) {
-        localStorage.removeItem('runRequestedAt');
-        runRequestedAt = 0;
-      }
-
-    } catch(err) {
-      console.error('Status poll failed', err);
+  socket.addEventListener('message', event => {
+    const { running } = JSON.parse(event.data);
+    const now    = Date.now();
+    const inGrace = runRequestedAt && (now - runRequestedAt) < 5000;
+    const effectiveRunning = running;
+    localStorage.removeItem('runRequestedAt');
+    
+    if (wasRunning && !effectiveRunning) {
+      runMsg.textContent = 'Pipeline completed successfully';
     }
-  }
 
-  // initial poll + repeat every 2 s
-  updateButtons();
-  pollIntervalId = setInterval(updateButtons, 2000);
+    runBtn.disabled       = effectiveRunning;
+    runBtn.style.display  = effectiveRunning ? 'none' : 'inline-block';
+    stopBtn.style.display = effectiveRunning ? 'inline-block' : 'none';
+    wasRunning = effectiveRunning;
+
+    // clear grace marker once expired
+    if (!inGrace && runRequestedAt) {
+      localStorage.removeItem('runRequestedAt');
+      runRequestedAt = 0;
+    }
+  });
 
   runBtn.addEventListener('click', async () => {
     runBtn.disabled   = true;
@@ -90,12 +83,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await fetch('/api/v1/process/run', { method: 'POST' });
       if (!res.ok) throw new Error(await res.text());
       runMsg.textContent = 'Pipeline started';
-
-      // record click time so it survives a page reload
       runRequestedAt = Date.now();
       localStorage.setItem('runRequestedAt', runRequestedAt);
-
-      // optimistic flip
       runBtn.style.display  = 'none';
       stopBtn.style.display = 'inline-block';
       wasRunning            = true;
@@ -107,14 +96,12 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   stopBtn.addEventListener('click', async () => {
-    stopBtn.disabled    = true;
-    runMsg.textContent  = 'Stopping…';
+    stopBtn.disabled   = true;
+    runMsg.textContent = 'Stopping…';
     try {
       const res = await fetch('/api/v1/process/stop', { method: 'POST' });
       if (!res.ok) throw new Error(await res.text());
       runMsg.textContent = 'Stop signal sent';
-
-      // clear any saved click so UI follows real state
       localStorage.removeItem('runRequestedAt');
       runRequestedAt = 0;
     } catch(err) {
@@ -125,7 +112,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // ─── Scheduler UI Logic (unchanged) ────────────────────────────────────────
+  // ─── Scheduler UI Logic ───────────────────────────────────────────────────
   const hourInp   = document.getElementById('sched-hour');
   const minInp    = document.getElementById('sched-minute');
   const saveBtn   = document.getElementById('save-schedule');

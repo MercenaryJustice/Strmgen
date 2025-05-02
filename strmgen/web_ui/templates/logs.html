@@ -31,10 +31,9 @@
     const filterInput  = document.getElementById("filter-input");
     const limitSelect  = document.getElementById("limit-select");
     const loadMoreBtn  = document.getElementById("load-more-btn");
-    const protocol     = window.location.protocol === "https:" ? "wss" : "ws";
-    const wsUrl        = `${protocol}://${window.location.host}/api/v1/logs/websocket-logs`;
-    const apiLogs      = "/api/v1/logs/logs";
-    const apiClear     = "/api/v1/logs/clear-logs";
+    const sseUrl       = `/api/v1/logs/stream`;
+    const apiLogs      = "/api/v1/logs";
+    const apiClear     = "/api/v1/logs/clear";
 
     let filterText   = "";
     let limitStep    = parseInt(limitSelect.value, 10);
@@ -114,10 +113,13 @@
     // Initial load
     loadLogs();
 
-    // WebSocket for live stream
-    const ws = new WebSocket(wsUrl);
-    ws.onmessage = evt => appendLine(evt.data);
-    ws.onclose   = () => appendLine("--- live log stream closed ---");
-    ws.onerror   = e   => console.error("WS error:", e);
+    // SSE for live stream
+    const evtSource = new EventSource(sseUrl);
+    evtSource.onmessage = e => appendLine(e.data);
+    evtSource.onerror   = e => {
+      console.error("SSE error:", e);
+      evtSource.close();
+      appendLine("--- live log stream closed ---");
+    };
   </script>
 {% endblock %}

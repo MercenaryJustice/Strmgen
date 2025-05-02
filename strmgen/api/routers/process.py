@@ -1,6 +1,8 @@
 import asyncio
+import json
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter
+from fastapi.responses import StreamingResponse
 from strmgen.core.pipeline import (
     start_background_run,
     stop_background_run,
@@ -15,10 +17,10 @@ async def run_now():
     start_background_run()
     return {"status": "started"}
 
-@router.post("/stop", response_model=StatusResponse)
+@router.post("/stop")
 async def stop_now():
-    stop_background_run()                # ← centralized stop
-    return StatusResponse(running=is_running())
+    stop_background_run()
+    return {"status": "stopped"}
 
 @router.get("/status", response_model=StatusResponse)
 async def pipeline_status():
@@ -28,19 +30,23 @@ async def pipeline_status():
     """
     return StatusResponse(running=is_running())
 
-@router.websocket("/ws/status")
-async def websocket_status(websocket: WebSocket):
+
+@router.get("/stream/status")
+async def stream_status_sse():
     """
-    WS endpoint that pushes {"running": bool} every second,
-    using the same is_running() helper.
+    SSE endpoint: stream {"running": bool} every second via EventSource.
     """
-    await websocket.accept()
-    print("🛰️  New WS client for status updates")
-    try:
+    async def event_generator():
         while True:
             running = is_running()
-            print(f"🛰️  sending running={running}")
-            await websocket.send_json({"running": running})
+            yield f"data: {json.dumps({'running': running})}\n\n"
             await asyncio.sleep(1)
-    except WebSocketDisconnect:
-        print("🛰️  Client disconnected")
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no"    # disable nginx buffering if used
+        }
+    )

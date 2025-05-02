@@ -11,6 +11,7 @@ from strmgen.web_ui.routes import router as ui_router
 from strmgen.core.auth import get_access_token
 from strmgen.core.pipeline import schedule_on_startup
 from strmgen.core.config import register_startup
+from strmgen.core.logger import setup_logger
 
 # ─── FastAPI & lifespan ─────────────────────────────────────────────────────
 app = FastAPI(title="STRMGen API & UI", debug=True)
@@ -20,6 +21,10 @@ app.include_router(ui_router)
 
 
 register_startup(app)
+
+# 1) Prime the logger for the “APP” category immediately on import
+logger = setup_logger("APP")
+logger.info("Logger initialized, starting application…")
 
 # API v1 domain routers
 api_v1 = APIRouter(prefix="/api/v1", tags=["API"])

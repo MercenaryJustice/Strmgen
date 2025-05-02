@@ -8,3 +8,6 @@ uvicorn[standard]>=0.22.0
 jinja2>=3.1.0
 python-multipart>=0.0.6        # for form parsing
 apscheduler
+fastapi-utils>=0.2.2
+typing-inspect>=0.8.0
+aiofiles>=0.8.0

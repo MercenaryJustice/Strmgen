@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Optional
 
-from ..core.state import mark_skipped, is_skipped, SkippedStream, set_reprocess
+from ..core.state import mark_skipped, is_skipped, SkippedStream
 from ..core.config import settings
 from ..core.models import DispatcharrStream
 from .tmdb import TVShow, EpisodeMeta, lookup_show, get_season_meta, get_episode_meta, download_if_missing
@@ -89,19 +89,26 @@ async def write_assets(
                 return True
 
         # download poster & backdrop
-        await download_if_missing(log_tag, f"{mshow.name} poster", mshow.poster_path,
-                                  Paths.show_image(show_folder, "poster.jpg"))
-        await download_if_missing(log_tag, f"{mshow.name} backdrop", mshow.backdrop_path,
-                                  Paths.show_image(show_folder, "fanart.jpg"))
+        asyncio.create_task(download_if_missing(log_tag, 
+                                                f"{mshow.name} poster", 
+                                                mshow.poster_path, 
+                                                Paths.show_image(show_folder, "poster.jpg")))
+
+        asyncio.create_task(download_if_missing(log_tag, 
+                                                f"{mshow.name} backdrop", 
+                                                mshow.backdrop_path, 
+                                                Paths.show_image(show_folder, "fanart.jpg")))
 
     # 2) Season‐level poster
     if mshow:
         season_meta = await get_season_meta(mshow.id, season)
         poster_path = season_meta.poster_path if season_meta else None
-        await download_if_missing(log_tag,
+        asyncio.create_task(
+            download_if_missing(log_tag, 
                                   f"{mshow.name} Season {season:02d} poster",
                                   poster_path,
                                   Paths.season_poster(season_folder, season))
+        )
 
     # 3) Write .strm file
     ok = await write_strm_file(strm_path, headers, stream)
@@ -120,13 +127,15 @@ async def write_assets(
                                 ep_nfo,
                                 write_episode_nfo,
                                 episode_meta.raw)
-        await download_if_missing(log_tag,
+        asyncio.create_task(
+            download_if_missing(log_tag, 
                                   f"{mshow.name if mshow else show} S{season:02d}E{ep:02d} still",
                                   episode_meta.still_path,
                                   Paths.episode_image(season_folder,
                                                       mshow.name if mshow else show,
                                                       season,
                                                       ep))
+        )
     return True
 
 
@@ -157,7 +166,8 @@ async def process_tv(
     stream: DispatcharrStream,
     root: Path,
     group: str,
-    headers: Dict[str, str]
+    headers: Dict[str, str],
+    reprocess: bool = False
 ) -> None:
     """
     Async processing for a single TV episode:
@@ -180,13 +190,14 @@ async def process_tv(
     mshow = await lookup_show(show)
     if not mshow:
         return
-    if await asyncio.to_thread(is_skipped, "TV", mshow.id):
-        logger.info("[TV] ⏭️ Skipped show: %s", show)
-        return
-    if not await asyncio.to_thread(filter_by_threshold, stream.name, mshow.raw if mshow else None):
-        await asyncio.to_thread(mark_skipped, "TV", group, mshow, stream)
-        logger.info("[TV] 🚫 Threshold filter failed for: %s", show)
-        return
+    if not reprocess:
+        if await asyncio.to_thread(is_skipped, "TV", mshow.id):
+            logger.info("[TV] ⏭️ Skipped show: %s", show)
+            return
+        if not await asyncio.to_thread(filter_by_threshold, stream.name, mshow.raw if mshow else None):
+            await asyncio.to_thread(mark_skipped, "TV", group, mshow, stream)
+            logger.info("[TV] 🚫 Threshold filter failed for: %s", show)
+            return
     if settings.update_tv_series_nfo and show in _written_show_nfos:
         return
 
@@ -203,7 +214,7 @@ async def process_tv(
 
     # write assets and subtitles
     if await write_assets(stream, show, season, ep, show_folder, season_folder, strm_path, mshow, episode_meta, headers):
-        await download_subtitles_if_enabled(show, season, ep, season_folder, mshow)
+        asyncio.create_task(download_subtitles_if_enabled(show, season, ep, season_folder, mshow))
 
 
 async def reprocess_tv(skipped: SkippedStream) -> bool:
@@ -219,9 +230,9 @@ async def reprocess_tv(skipped: SkippedStream) -> bool:
 
         root = Path(settings.output_root)
         for stream in streams:
-            await process_tv(stream, root, skipped["group"], headers)
+            await process_tv(stream, root, skipped["group"], headers, True)
 
-        await asyncio.to_thread(set_reprocess, skipped["tmdb_id"], False)
+        #await asyncio.to_thread(set_reprocess, skipped["tmdb_id"], False)
         logger.info("✅ Reprocessed TV show %s", skipped["name"])
         return True
     except Exception as e:

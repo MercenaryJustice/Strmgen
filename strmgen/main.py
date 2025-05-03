@@ -1,5 +1,7 @@
 # strmgen/main.py
 
+# import logging
+
 from pathlib import Path
 from fastapi import FastAPI, APIRouter
 from contextlib import asynccontextmanager
@@ -15,6 +17,11 @@ from strmgen.core.config import register_startup
 from strmgen.core.logger import setup_logger
 from .core.http import async_client as API_CLIENT
 
+# # Configure logging first thing
+# logging.basicConfig(
+#     level=logging.DEBUG,
+#     format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+# )
 # ─── FastAPI & Lifespan ────────────────────────────────────────────────────
 app = FastAPI(title="STRMGen API & UI", debug=True)
 

@@ -72,68 +72,91 @@ def is_running() -> bool:
 # ─── Core async pipeline ────────────────────────────────────────────────────
 async def run_pipeline():
     logger.info("Pipeline starting")
-    headers = await get_auth_headers()
 
-    # 1) Fetch all group names
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(
-                f"{settings.api_base}/api/channels/streams/groups/",
-                headers=headers
-            )
-            resp.raise_for_status()
-            all_groups = resp.json()
-        logger.info("Retrieved %d groups", len(all_groups))
-    except Exception:
-        logger.exception("Failed to fetch groups, aborting")
+        headers = await get_auth_headers()
+
+        # 1) Fetch all group names
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    f"{settings.api_base}/api/channels/streams/groups/",
+                    headers=headers
+                )
+                resp.raise_for_status()
+                all_groups = resp.json()
+            logger.info("Retrieved %d groups", len(all_groups))
+        except Exception:
+            logger.exception("Failed to fetch groups, aborting")
+            return
+
+        # 2) Filter groups by your configured patterns
+        matched_24_7 = [
+            g for g in all_groups
+            if settings.process_groups_24_7 and any(fnmatch.fnmatch(g, pat) for pat in settings.groups_24_7)
+        ]
+        matched_tv = [
+            g for g in all_groups
+            if settings.process_tv_series_groups and any(fnmatch.fnmatch(g, pat) for pat in settings.tv_series_groups)
+        ]
+        matched_movies = [
+            g for g in all_groups
+            if settings.process_movies_groups and any(fnmatch.fnmatch(g, pat) for pat in settings.movies_groups)
+        ]
+
+        # Helper to process one category of groups
+        async def process_category(groups, proc_fn, label):
+            for grp in groups:
+                if not is_running():
+                    logger.info("Pipeline was stopped before %s group %s", label, grp)
+                    return
+                logger.info("Processing %s group: %s", label, grp)
+                # fetch streams in a thread (because your existing service is sync)
+                try:
+                    streams = await fetch_streams_by_group_name(grp, headers)
+                except Exception:
+                    logger.exception("Error fetching streams for %s", grp)
+                    continue
+
+                for stream in streams:
+                    if not is_running():
+                        logger.info("Pipeline stopped during %s group %s", label, grp)
+                        return
+                    logger.info("  %s → %s (ID %s)", label, stream.name, stream.id)
+                    # process each stream, but don’t let one bad stream kill the whole category
+                    try:
+                        await proc_fn(stream, Path(settings.output_root), grp, headers)
+                    except Exception:
+                        logger.exception(
+                            "Error processing stream %s in group %s; skipping", stream.id, grp
+                        )
+                        continue
+
+        # 3) Execute categories, but isolate failures per category
+        for groups, fn, name in [
+            (matched_24_7, process_24_7, "24/7"),
+            (matched_tv,    process_tv,    "TV"),
+            (matched_movies, process_movie, "Movie"),
+        ]:
+            try:
+                await process_category(groups, fn, name)
+            except Exception:
+                logger.exception("Fatal error in %s category; continuing", name)
+
+    except asyncio.CancelledError:
+        logger.info("Pipeline task was cancelled")
         return
 
-    # 2) Filter groups by your configured patterns
-    matched_24_7 = [
-        g for g in all_groups
-        if settings.process_groups_24_7 and any(fnmatch.fnmatch(g, pat) for pat in settings.groups_24_7)
-    ]
-    matched_tv = [
-        g for g in all_groups
-        if settings.process_tv_series_groups and any(fnmatch.fnmatch(g, pat) for pat in settings.tv_series_groups)
-    ]
-    matched_movies = [
-        g for g in all_groups
-        if settings.process_movies_groups and any(fnmatch.fnmatch(g, pat) for pat in settings.movies_groups)
-    ]
-
-    # Helper to process one category of groups
-    async def process_category(groups, proc_fn, label):
-        for grp in groups:
-            if not is_running():
-                logger.info("Pipeline was stopped before %s group %s", label, grp)
-                return
-            logger.info("Processing %s group: %s", label, grp)
-            # fetch streams in a thread (because your existing service is sync)
-            try:
-                streams = await asyncio.to_thread(fetch_streams_by_group_name, grp, headers)
-            except Exception:
-                logger.exception("Error fetching streams for %s", grp)
-                continue
-
-            for stream in streams:
-                if not is_running():
-                    logger.info("Pipeline stopped during %s group %s", label, grp)
-                    return
-                logger.info("  %s → %s (ID %s)", label, stream.name, stream.id)
-                # process each stream in a thread pool
-                await asyncio.to_thread(proc_fn, stream, Path(settings.output_root), grp, headers)
-
-    # 3) Execute categories sequentially
-    await process_category(matched_24_7, process_24_7, "24/7")
-    await process_category(matched_tv,    process_tv,    "TV")
-    await process_category(matched_movies, process_movie, "Movie")
+    except Exception:
+        logger.exception("Pipeline aborted due to unexpected error")
+        return
 
     # 4) Final logging
     if processor_task and processor_task.cancelled():
         logger.info("Pipeline was cancelled")
     else:
         logger.info("Pipeline completed successfully")
+        
 
 # ─── Scheduler setup ────────────────────────────────────────────────────────
 def schedule_on_startup():

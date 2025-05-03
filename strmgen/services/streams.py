@@ -135,6 +135,30 @@ async def get_stream_by_id(
         logger.error("[STRM] ❌ Exception fetching stream #%d: %s", stream_id, e)
         return None
 
+async def get_dispatcharr_stream_by_id(
+    stream_id: int,
+    headers: Dict[str, str],
+    timeout: float = API_TIMEOUT
+) -> Optional[DispatcharrStream]:
+    """
+    Async fetch of a single Stream by ID, with token refresh.
+    """
+    url = f"{settings.api_base}/api/channels/streams/{stream_id}/"
+    try:
+        r = await _request_with_refresh("GET", url, headers, timeout=timeout)
+        if not r.is_success:
+            logger.error(
+                "[STRM] ❌ Error fetching stream #%d: %d %s",
+                stream_id, r.status_code, r.text
+            )
+            return None
+
+        data = r.json()
+        logger.info("[STRM] ✅ Fetched stream #%d", stream_id)
+        return DispatcharrStream.from_dict(data)
+    except Exception as e:
+        logger.error("[STRM] ❌ Exception fetching stream #%d: %s", stream_id, e)
+        return None
 
 async def write_strm_file(
     path: Path,
@@ -199,8 +223,8 @@ async def fetch_streams(
     stream_type: str,
     headers: Optional[Dict[str, str]] = None,
     timeout: float = API_TIMEOUT,
-    page: int = 1,
-    page_size: int = 1000,
+    # page: int = 1,
+    # page_size: int = 1000,
 ) -> List[DispatcharrStream]:
     """
     Async fetch of DispatcharrStream entries matching a group and type.
@@ -215,8 +239,8 @@ async def fetch_streams(
             "search":      group,
             "stream_type": stream_type,
             "ordering":    "name",
-            "page":        page,
-            "page_size":   page_size,
+            # "page":        page,
+            # "page_size":   page_size,
         }
         r = await _request_with_refresh("GET", url, hdrs, timeout=timeout, params=params)
         r.raise_for_status()

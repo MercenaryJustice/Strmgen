@@ -1,7 +1,6 @@
 # strmgen/services/tmdb.py
 
 import asyncio
-from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Optional, Dict, List, Any, Tuple
 from pathlib import Path
@@ -11,6 +10,7 @@ import httpx
 
 from ..core.config import settings
 from ..core.utils import clean_name, safe_mkdir, setup_logger
+from ..core.models import Movie, TVShow, SeasonMeta, EpisodeMeta
 
 logger = setup_logger(__name__)
 
@@ -22,96 +22,7 @@ TMDB_IMG_BASE = "https://image.tmdb.org/t/p"
 _tv_genre_map: Dict[int, str] = {}
 _tmdb_show_cache: Dict[str, Any] = {}
 
-@dataclass
-class Movie:
-    id: int
-    title: str
-    original_title: str
-    overview: str
-    poster_path: Optional[str]
-    backdrop_path: Optional[str]
-    release_date: str
-    adult: bool
-    original_language: str
-    genre_ids: List[int]
-    popularity: float
-    video: bool
-    vote_average: float
-    vote_count: int
-    alternative_titles: Dict[str, Any]
-    changes: Dict[str, Any]
-    credits: Dict[str, Any]
-    external_ids: Dict[str, Any]
-    images: Dict[str, Any]
-    keywords: Dict[str, Any]
-    lists: Dict[str, Any]
-    recommendations: Dict[str, Any]
-    release_dates: Dict[str, Any]
-    reviews: Dict[str, Any]
-    similar: Dict[str, Any]
-    translations: Dict[str, Any]
-    videos: Dict[str, Any]
-    watch_providers: Dict[str, Any]
-    raw: Dict[str, Any]
 
-    @property
-    def year(self) -> Optional[int]:
-        if not self.release_date or len(self.release_date) < 4:
-            return None
-        try:
-            return int(self.release_date[:4])
-        except ValueError:
-            return None
-
-@dataclass
-class TVShow:
-    id: int
-    name: str
-    original_name: str
-    overview: str
-    poster_path: Optional[str]
-    backdrop_path: Optional[str]
-    media_type: str
-    adult: bool
-    original_language: str
-    genre_ids: List[int]
-    genre_names: List[str]
-    popularity: float
-    first_air_date: str
-    vote_average: float
-    vote_count: int
-    origin_country: List[str]
-    external_ids: Dict[str, Any]
-    raw: Dict[str, Any]
-
-@dataclass
-class SeasonMeta:
-    id: int
-    name: str
-    overview: str
-    air_date: str
-    episodes: List[Dict[str, Any]]
-    poster_path: Optional[str]
-    season_number: int
-    vote_average: float
-    raw: Dict[str, Any]
-
-@dataclass
-class EpisodeMeta:
-    air_date: str
-    crew: List[Dict[str, Any]]
-    episode_number: int
-    guest_stars: List[Dict[str, Any]]
-    name: str
-    overview: str
-    id: int
-    production_code: str
-    runtime: Optional[int]
-    season_number: int
-    still_path: Optional[str]
-    vote_average: float
-    vote_count: int
-    raw: Dict[str, Any]
 
 
 # ─── Internal HTTP helper ─────────────────────────────────────────────────────

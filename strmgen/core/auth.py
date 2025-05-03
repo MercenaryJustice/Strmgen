@@ -2,7 +2,6 @@
 
 import asyncio
 from typing import Dict
-
 from .http import async_client
 from .config import settings
 from .logger import setup_logger
@@ -15,29 +14,33 @@ _token_expires_at: float = 0.0  # UNIX timestamp
 
 async def _fetch_new_token() -> str:
     """
-    Internal: request a new access token and update the expiry cache.
+    Actually call your token endpoint (settings.token_url) with
+    username/password, parse the JSON, and return the raw token string.
     """
+    url = f"{settings.api_base.rstrip('/')}{settings.token_url}"
+    logger.debug(f"[AUTH] Fetching new token from {url} with username={settings.username!r}")
     payload = {
-        "grant_type": "password",
         "username": settings.username,
         "password": settings.password,
     }
-    token_url = f"{settings.api_base}{settings.token_url}"
-    resp = await async_client.post(token_url, data=payload, timeout=10.0)
+    # reuse the single shared AsyncClient
+    resp = await async_client.post(url, json=payload, timeout=10)
+    logger.debug(f"[AUTH] Token endpoint returned {resp.status_code}: {resp.text}")
     resp.raise_for_status()
-    body = resp.json()
-    token = body.get("access_token")
-    # schedule refresh a minute before expiry
+    data = resp.json()
+    # adjust the key here to whatever your API returns
+    token = data.get("access") or data.get("token")
+    expires_in = data.get("expires_in", 3600)
+    # schedule expiration 60s earlier for safety
+    loop = asyncio.get_event_loop()
     global _token_expires_at
-    expires_in = body.get("expires_in", 3600)
-    _token_expires_at = asyncio.get_event_loop().time() + expires_in - 60
-    logger.info("[AUTH] ✅ Fetched new token, expires at %s", _token_expires_at)
+    _token_expires_at = loop.time() + expires_in - 60
+    logger.info("[AUTH] Retrieved new token; expires in %ds", expires_in)
     return token
 
 async def get_auth_headers() -> Dict[str, str]:
     """
-    Async getter for fresh authorization headers.
-    Caches the token until shortly before expiration.
+    Return a fresh Bearer token header, caching it until just before expiry.
     """
     global _cached_token, _token_expires_at
     async with _token_lock:

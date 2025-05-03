@@ -6,12 +6,12 @@ from typing import Optional, Dict
 
 from ..core.config import settings
 from .subtitles import download_movie_subtitles
-from .streams import write_strm_file, get_stream_by_id
+from .streams import write_strm_file, get_dispatcharr_stream_by_id
 from ..core.models import DispatcharrStream
 from .tmdb import get_movie, download_if_missing
 from ..core.utils import clean_name, target_folder, write_if, write_movie_nfo, filter_by_threshold
 from ..core.logger import setup_logger
-from ..core.state import mark_skipped, is_skipped, SkippedStream, set_reprocess
+from ..core.state import mark_skipped, is_skipped, SkippedStream
 from ..core.auth import get_auth_headers
 
 logger = setup_logger(__name__)
@@ -50,7 +50,8 @@ async def process_movie(
     stream: DispatcharrStream,
     root: Path,
     group: str,
-    headers: Dict[str, str]
+    headers: Dict[str, str],
+    reprocess: bool = False
 ) -> None:
     """
     Async processing for movie streams:
@@ -77,17 +78,18 @@ async def process_movie(
         logger.info("[MOVIE] 🚫 '%s' not found in TMDb", title)
         return
 
-    # 3) Skip if already marked
-    if await asyncio.to_thread(is_skipped, "MOVIE", movie.id):
-        logger.info("[MOVIE] ⏭️ Skipped (cached): %s", title)
-        return
+    if not reprocess:
+        # 3) Skip if already marked
+        if await asyncio.to_thread(is_skipped, "MOVIE", movie.id):
+            logger.info("[MOVIE] ⏭️ Skipped (cached): %s", title)
+            return
 
-    # 4) Threshold filtering
-    ok = await asyncio.to_thread(filter_by_threshold, stream.name, getattr(movie, "raw", None))
-    if not ok:
-        await asyncio.to_thread(mark_skipped, "MOVIE", group, movie, stream)
-        logger.info("[MOVIE] 🚫 Failed threshold filters: %s", title)
-        return
+        # 4) Threshold filtering
+        ok = await asyncio.to_thread(filter_by_threshold, stream.name, getattr(movie, "raw", None))
+        if not ok:
+            await asyncio.to_thread(mark_skipped, "MOVIE", group, movie, stream)
+            logger.info("[MOVIE] 🚫 Failed threshold filters: %s", title)
+            return
 
     # 5) Prepare output paths
     folder = await asyncio.to_thread(MoviePaths.base_folder, root, group, title, movie.year)
@@ -110,17 +112,24 @@ async def process_movie(
         poster_url = getattr(movie, "poster_path", None)
         if poster_url:
             poster_dest = await asyncio.to_thread(MoviePaths.poster_path, folder)
+            asyncio.create_task(
+                download_if_missing(log_tag, f"{title} poster", poster_url, poster_dest)
+            )
             await asyncio.to_thread(download_if_missing, log_tag, f"{title} poster", poster_url, poster_dest)
 
         backdrop_url = getattr(movie, "backdrop_path", None)
         if backdrop_url:
             backdrop_dest = await asyncio.to_thread(MoviePaths.backdrop_path, folder)
-            await asyncio.to_thread(download_if_missing, log_tag, f"{title} backdrop", backdrop_url, backdrop_dest)
+            asyncio.create_task(download_if_missing(log_tag, 
+                                                    f"{title} backdrop", 
+                                                    backdrop_url, 
+                                                    backdrop_dest)
+            )
 
     # 8) Download subtitles if enabled
     if settings.opensubtitles_download:
         logger.info("[MOVIE] 🔽 Downloading subtitles for: %s", title)
-        await download_movie_subtitles(movie, folder, str(movie.id))
+        asyncio.create_task(download_movie_subtitles(movie, folder, str(movie.id)))
 
 
 async def reprocess_movie(skipped: SkippedStream) -> bool:
@@ -134,20 +143,18 @@ async def reprocess_movie(skipped: SkippedStream) -> bool:
             return False
 
         headers = await get_auth_headers()
-        raw     = await get_stream_by_id(did, headers, timeout=10)
-        if not raw:
+        stream     = await get_dispatcharr_stream_by_id(did, headers, timeout=10)
+        if not stream:
             logger.error("No DispatcharrStream for reprocess: %s", skipped["name"])
             return False
-
-        stream = DispatcharrStream.from_dict(raw)
     except Exception as e:
         logger.error("Error fetching stream for reprocess %s: %s", skipped["name"], e)
         return False
 
     root = Path(settings.output_root)
     try:
-        await process_movie(stream, root, skipped["group"], headers)
-        await asyncio.to_thread(set_reprocess, skipped["tmdb_id"], False)
+        await process_movie(stream, root, skipped["group"], headers, True)
+        #await asyncio.to_thread(set_reprocess, skipped["tmdb_id"], False)
         logger.info("✅ Reprocessed movie: %s", skipped["name"])
         return True
     except Exception as e:

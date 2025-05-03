@@ -1,46 +1,58 @@
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+# strmgen/core/http.py
 
-# Create a single, shared session with connection pooling and retry logic
+import logging
+import httpx
+from httpx import Limits
 
-def create_session(
+logger = logging.getLogger(__name__)
+
+# Try importing RetryTransport for automatic retries
+try:
+    from httpx import RetryTransport
+    _RETRY_AVAILABLE = True
+except ImportError:
+    RetryTransport = None  # type: ignore
+    _RETRY_AVAILABLE = False
+
+
+def create_async_client(
     pool_connections: int = 10,
     pool_maxsize: int = 50,
     total_retries: int = 3,
     backoff_factor: float = 0.3,
-    status_forcelist: tuple = (429, 502, 503, 504),
-) -> requests.Session:
+    status_forcelist: tuple[int, ...] = (429, 502, 503, 504),
+) -> httpx.AsyncClient:
     """
-    Returns a requests.Session configured with a HTTPAdapter that
-    handles connection pooling and automatic retries on specified status codes.
+    Returns an httpx.AsyncClient configured with connection pooling
+    and, if available, automatic retries on specified status codes.
 
-    :param pool_connections: Number of connection pools to cache
-    :param pool_maxsize: Maximum number of connections to save in the pool
-    :param total_retries: Total number of retry attempts
+    :param pool_connections: Maximum keep-alive connections
+    :param pool_maxsize: Maximum concurrent connections
+    :param total_retries: Number of retry attempts on failures
     :param backoff_factor: Backoff multiplier between retry attempts
-    :param status_forcelist: HTTP status codes that should trigger a retry
+    :param status_forcelist: HTTP status codes that trigger a retry
     """
-    session = requests.Session()
-
-    # Configure retry strategy
-    retry_strategy = Retry(
-        total=total_retries,
-        backoff_factor=backoff_factor,
-        status_forcelist=status_forcelist,
-        allowed_methods=["HEAD", "GET", "OPTIONS", "POST", "PUT", "DELETE"],
+    limits = Limits(
+        max_keepalive_connections=pool_connections,
+        max_connections=pool_maxsize
     )
 
-    # Mount adapter with the retry strategy to both HTTP and HTTPS
-    adapter = HTTPAdapter(
-        pool_connections=pool_connections,
-        pool_maxsize=pool_maxsize,
-        max_retries=retry_strategy,
-    )
-    session.mount("https://", adapter)
-    session.mount("http://", adapter)
+    if _RETRY_AVAILABLE and RetryTransport is not None:
+        # configure retry transport
+        transport = RetryTransport(
+            retries=total_retries,
+            backoff_factor=backoff_factor,
+            status_forcelist=status_forcelist,
+        )
+        client = httpx.AsyncClient(limits=limits, transport=transport)
+    else:
+        logger.warning(
+            "RetryTransport unavailable; HTTP client will not retry on failures"
+        )
+        client = httpx.AsyncClient(limits=limits)
 
-    return session
+    return client
 
-# Shared session instance
-session = create_session()
+
+# Shared async client instance
+async_client: httpx.AsyncClient = create_async_client()

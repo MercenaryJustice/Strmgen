@@ -7,24 +7,18 @@ from pathlib import Path
 from collections import deque
 
 import aiofiles
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from starlette.concurrency import run_in_threadpool
 
 from strmgen.core.logger import LOG_PATH, setup_logger
 from strmgen.api.schemas import LogsResponse, ClearResponse
 
-# Configuration
-MAX_LOG_LINES = 10_000
-
-router = APIRouter(tags=["Logs"])
+router = APIRouter(tags=["logs"])
 logger = setup_logger("LOGS")
-
 
 async def tail_f(path: Path):
     """
     Asynchronously yield new lines appended to `path` (like `tail -f`).
-    Uses aiofiles to avoid blocking the event loop.
     """
     try:
         async with aiofiles.open(path, "r", encoding="utf-8") as f:
@@ -39,15 +33,17 @@ async def tail_f(path: Path):
         logger.exception("Error streaming from log file %s", path)
         raise
 
-def tail_and_count(path: Path, n: Optional[int]) -> tuple[list[str], int]:
+def tail_and_count(path: Path, n: Optional[int]) -> tuple[List[str], int]:
+    """
+    Return the last `n` lines of the log (or all lines if n is None),
+    plus the total line count.
+    """
     total = 0
     if n is None:
-        # Just read everything
         with path.open("r", encoding="utf-8") as f:
             lines = f.read().splitlines()
-            return lines, len(lines)
+        return lines, len(lines)
 
-    # Read once, keep last n lines in a deque
     dq: deque[str] = deque(maxlen=n)
     with path.open("r", encoding="utf-8") as f:
         for line in f:
@@ -55,52 +51,36 @@ def tail_and_count(path: Path, n: Optional[int]) -> tuple[list[str], int]:
             dq.append(line.rstrip("\n"))
     return list(dq), total
 
-def tail_lines_sync(path: Path, n: int) -> List[str]:
+@router.get("/", response_model=LogsResponse)
+async def get_logs(limit: Optional[int] = Query(None, ge=1, le=10000)):
     """
-    Return the last n lines of the file at `path` using a deque.
+    GET /api/v1/logs?limit={n}
+    Return up to `limit` most recent log lines, plus the total count.
     """
-    try:
-        with path.open("r", encoding="utf-8") as f:
-            return list(deque(f, maxlen=n))
-    except Exception:
-        logger.exception("Error reading last lines from %s", path)
-        raise HTTPException(status_code=500, detail="Could not read log file")
-
-
-@router.get("", response_model=LogsResponse)
-async def get_logs(limit: Optional[int] = None):
     logger.info("GET /api/v1/logs called with limit=%s", limit)
-
     if not LOG_PATH.exists():
-        return LogsResponse(total=0, logs=[])
+        raise HTTPException(status_code=404, detail="Log file not found")
 
-    if limit is not None and (limit <= 0 or limit > MAX_LOG_LINES):
-        raise HTTPException(
-            status_code=400,
-            detail=f"limit must be between 1 and {MAX_LOG_LINES}"
-        )
-
-    # offload combined work
-    lines, total = await run_in_threadpool(tail_and_count, LOG_PATH, limit)
+    # offload blocking file‐read to a thread
+    lines, total = await asyncio.to_thread(tail_and_count, LOG_PATH, limit)
     return LogsResponse(total=total, logs=lines)
 
-def count_lines_sync(path: Path) -> int:
-    with path.open("r", encoding="utf-8") as f:
-        return sum(1 for _ in f)
-
 @router.get("/download")
-def download_logs():
+async def download_logs():
     """
     GET /api/v1/logs/download
-    Stream the entire log file as plain text.
+    Stream the entire log file as plain text, attachment.
     """
     logger.info("GET /api/v1/logs/download called")
     if not LOG_PATH.exists():
         raise HTTPException(status_code=404, detail="Log file not found")
 
-    def file_iterator():
-        with LOG_PATH.open("rb") as f:
-            for chunk in iter(lambda: f.read(8192), b""):
+    async def file_iterator():
+        async with aiofiles.open(LOG_PATH, "rb") as f:
+            while True:
+                chunk = await f.read(8192)
+                if not chunk:
+                    break
                 yield chunk
 
     return StreamingResponse(
@@ -109,22 +89,24 @@ def download_logs():
         headers={"Content-Disposition": f"attachment; filename={LOG_PATH.name}"}
     )
 
-
 @router.post("/clear", response_model=ClearResponse)
 async def clear_logs():
     """
     POST /api/v1/logs/clear
-    Clear the contents of the log file.
+    Truncate (clear) the log file contents.
     """
     logger.info("POST /api/v1/logs/clear called")
-    try:
-        LOG_PATH.write_text("", encoding="utf-8")
-        logger.info("Cleared log file via API")
-    except Exception:
-        logger.exception("Could not clear logs")
-        raise HTTPException(status_code=500, detail="Could not clear logs")
-    return ClearResponse(status="cleared")
+    if not LOG_PATH.exists():
+        raise HTTPException(status_code=404, detail="Log file not found")
 
+    try:
+        async with aiofiles.open(LOG_PATH, "w", encoding="utf-8") as f:
+            # opening with "w" will truncate the file
+            pass
+        return ClearResponse(status="cleared")
+    except Exception:
+        logger.exception("Failed to clear log file %s", LOG_PATH)
+        raise HTTPException(status_code=500, detail="Failed to clear log file")
 
 @router.get("/stream")
 async def stream_logs_sse():
@@ -145,4 +127,3 @@ async def stream_logs_sse():
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
     )
-

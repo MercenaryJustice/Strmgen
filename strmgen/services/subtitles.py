@@ -1,45 +1,45 @@
-import shutil
+# strmgen/services/subtitles.py
 
-from typing import Optional
+import shutil
+import asyncio
+from typing import Optional, Any
 from pathlib import Path
 
 from opensubtitlescom import OpenSubtitles
+
 from ..core.config import settings
-from .tmdb import Movie
-from ..core.utils import clean_name, safe_mkdir
-from ..core.utils import setup_logger
+from ..core.utils import clean_name, safe_mkdir, setup_logger
+from ..services.tmdb import Movie
+
 logger = setup_logger(__name__)
 
-_download_limit_reached = False  # global flag
-
+_download_limit_reached = False
 sub_client: Optional[OpenSubtitles] = None
+
+# Initialize the OpenSubtitles client at import time (if configured)
 if (
     settings.opensubtitles_download
     and settings.opensubtitles_app_name
     and settings.opensubtitles_username
     and settings.opensubtitles_password
 ):
-    sub_client = OpenSubtitles(settings.opensubtitles_app_name, settings.opensubtitles_api_key)
     try:
+        sub_client = OpenSubtitles(settings.opensubtitles_app_name, settings.opensubtitles_api_key)
         sub_client.login(settings.opensubtitles_username, settings.opensubtitles_password)
     except Exception as e:
         logger.warning(f"[SUB] OpenSubtitles login failed: {e}")
         sub_client = None
 
-def _download_and_write(params: dict, filename: str, folder: Path) -> None:
+
+async def _download_and_write(params: dict[str, Any], filename: str, folder: Path) -> None:
+    """
+    Blocking subtitle search & download logic, run in a thread.
+    """
     global _download_limit_reached
 
-    if _download_limit_reached:
-        logger.info("[SUB] ⏭️ Skipping subtitle download: daily limit already reached.")
-        return
-
-    if not sub_client:
-        logger.warning("[SUB] OpenSubtitles client is not initialized.")
-        return
-
-    safe_mkdir(folder)
-
-    try:
+    def _blocking():
+        nonlocal params, filename, folder
+        safe_mkdir(folder)
         logger.info(f"[SUB] Searching for subtitles with: {params}")
         resp = sub_client.search(**params)
         results = getattr(resp, "data", None)
@@ -55,40 +55,53 @@ def _download_and_write(params: dict, filename: str, folder: Path) -> None:
             logger.warning("[SUB] ❌ Best subtitle result missing 'id'; skipping download.")
             return
 
-        output_path = folder / filename
-        logger.info(f"[SUB] Downloading subtitle ID: {sub_id} with {count} downloads")
-
-        # Download subtitle to temp file
+        logger.info(f"[SUB] Downloading subtitle ID: {sub_id} ({count} downloads)")
         sub_path = sub_client.download_and_save(best)
-
         if not Path(sub_path).exists():
             logger.error(f"[SUB] ❌ Downloaded subtitle not found at: {sub_path}")
             return
 
-        # Move to desired filename and delete original
+        output_path = folder / filename
         shutil.copy(sub_path, output_path)
         Path(sub_path).unlink(missing_ok=True)
-
         logger.info(f"[SUB] ✅ Subtitle saved as: {output_path}")
 
+    if _download_limit_reached:
+        logger.info("[SUB] ⏭️ Skipping subtitle download: daily limit reached.")
+        return
+    if not sub_client:
+        logger.warning("[SUB] OpenSubtitles client is not initialized.")
+        return
+
+    try:
+        await asyncio.to_thread(_blocking)
     except Exception as e:
-        if "Download limit reached" in str(e) or "406" in str(e):
+        msg = str(e)
+        if "Download limit reached" in msg or "406" in msg:
             _download_limit_reached = True
-            logger.warning("[SUB] ❌ Subtitle download blocked (quota or bad format). Skipping further attempts this run.")
+            logger.warning("[SUB] ❌ Subtitle download blocked (quota or bad format); skipping further attempts.")
         else:
             logger.exception(f"[SUB] ⚠️ Failed to download/save subtitles: {e}")
 
 
-def download_movie_subtitles(meta: Movie, folder: Path, tmdb_id: Optional[str] = None) -> None:
+async def download_movie_subtitles(
+    meta: Movie,
+    folder: Path,
+    tmdb_id: Optional[str] = None
+) -> None:
+    """
+    Async entrypoint to download movie subtitles.
+    """
     if not settings.opensubtitles_download or not meta:
         return
+
     filename = f"{clean_name(meta.title)}.en.srt"
     filepath = folder / filename
-    if filepath.exists():
+    if await asyncio.to_thread(filepath.exists):
         logger.info(f"[SUB] Skipping download, subtitle already exists: {filepath}")
         return
 
-    params = {"languages": "en"}
+    params: dict[str, Any] = {"languages": "en"}
     if tmdb_id:
         params["tmdb_id"] = tmdb_id
     else:
@@ -97,19 +110,29 @@ def download_movie_subtitles(meta: Movie, folder: Path, tmdb_id: Optional[str] =
             "year": meta.release_date[:4]
         })
 
-    _download_and_write(params, filename, folder)
+    await _download_and_write(params, filename, folder)
 
 
-def download_episode_subtitles(show: str, season: int, ep: int, folder: Path, tmdb_id: Optional[str] = None) -> None:
+async def download_episode_subtitles(
+    show: str,
+    season: int,
+    ep: int,
+    folder: Path,
+    tmdb_id: Optional[str] = None
+) -> None:
+    """
+    Async entrypoint to download episode subtitles.
+    """
     if not settings.opensubtitles_download or not show:
         return
+
     filename = f"{clean_name(show)} - S{season:02}E{ep:02}.en.srt"
     filepath = folder / filename
-    if filepath.exists():
+    if await asyncio.to_thread(filepath.exists):
         logger.info(f"[SUB] Skipping download, subtitle already exists: {filepath}")
         return
 
-    params: dict[str, str | int] = {
+    params: dict[str, Any] = {
         "season_number": season,
         "episode_number": ep,
         "languages": "en"
@@ -119,4 +142,4 @@ def download_episode_subtitles(show: str, season: int, ep: int, folder: Path, tm
     else:
         params["query"] = show
 
-    _download_and_write(params, filename, folder)
+    await _download_and_write(params, filename, folder)

@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Depends
 from strmgen.core.pipeline import (
     scheduler,
@@ -39,7 +41,8 @@ async def update_schedule(u: ScheduleUpdate,
     # Persist to disk via our helper
     cfg.scheduled_hour   = u.hour
     cfg.scheduled_minute = u.minute
-    save_settings(cfg)
+    # offload config.json write so we don’t block the loop
+    await asyncio.to_thread(save_settings, cfg)
 
     # Return the new schedule
     job      = scheduler.get_job("daily_run")

@@ -184,3 +184,18 @@ strmgen/processors_old.py
 strmgen/logs/
 strmgen/config/state.db
 state.db
+
+# macOS
+.DS_Store
+__MACOSX/
+
+# Python
+.venv/
+*.pyc
+__pycache__/
+
+# Logs
+*.log
+
+# IDE
+.vscode/

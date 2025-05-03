@@ -1,92 +1,60 @@
+# strmgen/core/auth.py
 
-import requests
-import json
-from pathlib import Path
-from typing import Optional, Dict, Any
-from strmgen.core.config import settings, BASE_DIR
-from strmgen.core.utils import setup_logger
-from requests import RequestException
+import asyncio
+from typing import Dict
 
-from strmgen.core.http import session as API_SESSION
+from .http import async_client
+from .config import settings
+from .logger import setup_logger
 
 logger = setup_logger(__name__)
 
-CONFIG_PATH: Path = BASE_DIR / "config.json"
+_token_lock = asyncio.Lock()
+_cached_token: str = ""
+_token_expires_at: float = 0.0  # UNIX timestamp
 
-def get_access_token() -> Optional[str]:
+async def _fetch_new_token() -> str:
     """
-    Fetches a fresh access token (and refresh token) from the API,
-    updates `settings.access` and `settings.refresh`, and
-    writes those back into config.json.
+    Internal: request a new access token and update the expiry cache.
     """
-    if not settings.token_url:
-        raise ValueError("Missing 'token_url' in settings")
+    payload = {
+        "grant_type": "password",
+        "username": settings.username,
+        "password": settings.password,
+    }
+    token_url = f"{settings.api_base}{settings.token_url}"
+    resp = await async_client.post(token_url, data=payload, timeout=10.0)
+    resp.raise_for_status()
+    body = resp.json()
+    token = body.get("access_token")
+    # schedule refresh a minute before expiry
+    global _token_expires_at
+    expires_in = body.get("expires_in", 3600)
+    _token_expires_at = asyncio.get_event_loop().time() + expires_in - 60
+    logger.info("[AUTH] ✅ Fetched new token, expires at %s", _token_expires_at)
+    return token
 
-    # assemble URL (avoid double slashes)
-    url = f"{settings.api_base.rstrip('/')}/{settings.token_url.lstrip('/')}"
-    if not settings.username or not settings.password:
-        raise ValueError("Missing username/password in settings")
-
-    try:
-        response = API_SESSION.post(
-            url,
-            json={"username": settings.username, "password": settings.password},
-            timeout=10,
-        )
-        response.raise_for_status()
-        tokens: Dict[str, Any] = response.json()
-
-        # update in-memory settings
-        access_token = tokens.get("access")
-        refresh_token = tokens.get("refresh")
-        settings.access = access_token
-        settings.refresh = refresh_token
-
-        # persist back to config.json
-        try:
-            # load existing JSON (or start with empty dict)
-            if CONFIG_PATH.exists():
-                cfg: Dict[str, Any] = json.loads(
-                    CONFIG_PATH.read_text(encoding="utf-8")
-                )
-            else:
-                cfg = {}
-
-            # overwrite/add our tokens
-            cfg["access"] = access_token
-            cfg["refresh"] = refresh_token
-
-            # write back (pretty‐printed)
-            CONFIG_PATH.write_text(
-                json.dumps(cfg, indent=4, ensure_ascii=False),
-                encoding="utf-8",
-            )
-        except Exception as e:
-            # if you have a logger, you could log this warning instead
-            print(f"⚠️ Warning: failed to write tokens to {CONFIG_PATH}: {e}")
-
-        return access_token
-
-    except RequestException as exc:
-        # you could log the exception here as well
-        return None
-
-def refresh_access_token_if_needed() -> Optional[str]:
-    access = settings.access
-    if not access:
-        return get_access_token()
-    headers = {"Authorization": f"Bearer {access}"}
-    try:
-        r = API_SESSION.get(f"{settings.api_base}/api/core/settings/", headers=headers, timeout=10)
-        if r.status_code == 401:
-            return get_access_token()
-        return access
-    except RequestException:
-        return get_access_token()
-
-def get_auth_headers() -> Dict[str, str]:
+async def get_auth_headers() -> Dict[str, str]:
     """
-    Return the headers needed for authenticated API requests.
+    Async getter for fresh authorization headers.
+    Caches the token until shortly before expiration.
     """
-    token = refresh_access_token_if_needed()
-    return {"Authorization": f"Bearer {token}"}
+    global _cached_token, _token_expires_at
+    async with _token_lock:
+        now = asyncio.get_event_loop().time()
+        if not _cached_token or now >= _token_expires_at:
+            try:
+                _cached_token = await _fetch_new_token()
+            except Exception:
+                logger.exception("[AUTH] Failed to refresh token")
+                raise
+    return {"Authorization": f"Bearer {_cached_token}"}
+
+async def get_access_token() -> str:
+    """
+    Async helper to retrieve the raw bearer token string.
+    """
+    headers = await get_auth_headers()
+    auth = headers.get("Authorization", "")
+    parts = auth.split(" ", 1)
+    return parts[1] if len(parts) > 1 else ""

@@ -21,13 +21,13 @@ router = APIRouter(tags=["Streams"])
 
 @router.get("/stream-groups", response_model=List[str])
 async def api_groups():
-    return fetch_groups()
+    return await fetch_groups()
 
 @router.get("/streams-by-group/{group}")
 async def api_streams(group: str, request: Request):
     try:
         headers = dict(request.headers)
-        return fetch_streams_by_group_name(group, headers)
+        return await fetch_streams_by_group_name(group, headers)
     except Exception as e:
         logger.error("Failed fetching streams: %s", e)
         raise HTTPException(500, "Error fetching streams")
@@ -35,7 +35,7 @@ async def api_streams(group: str, request: Request):
 @router.get("/stream-by-id/{stream_id}")
 async def api_stream(stream_id: int, request: Request):
     headers = dict(request.headers)
-    data = get_stream_by_id(stream_id, headers)
+    data = await get_stream_by_id(stream_id, headers)
     if data is None:
         raise HTTPException(404, "Stream not found")
     return data
@@ -43,7 +43,7 @@ async def api_stream(stream_id: int, request: Request):
 @router.get("/is-stream-alive/{stream_id}/alive")
 async def api_stream_alive(stream_id: int, request: Request):
     headers = dict(request.headers)
-    st = get_stream_by_id(stream_id, headers)
+    st = await get_stream_by_id(stream_id, headers)
     if not st:
         raise HTTPException(404, "Stream not found")
     return {"alive": is_stream_alive(st["url"])}
@@ -78,10 +78,10 @@ async def api_set_reprocess(
                 if s["tmdb_id"] == tmdb_id:
                     if s["stream_type"].lower() == "movie":
                         from strmgen.services.movies import reprocess_movie
-                        reprocess_movie(s)
+                        await reprocess_movie(s)
                     else:
                         from strmgen.services.tv import reprocess_tv
-                        reprocess_tv(s)
+                        await reprocess_tv(s)
                     break
         except Exception as e:
             logger.error("Failed to reprocess stream: %s", e)

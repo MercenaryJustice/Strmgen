@@ -1,3 +1,6 @@
+# strmgen/services/tv.py
+
+import asyncio
 import logging
 from pathlib import Path
 from typing import Dict, Optional
@@ -16,16 +19,14 @@ from ..core.utils import (
     clean_name
 )
 from .streams import write_strm_file, fetch_streams
-from strmgen.core.auth import get_auth_headers
-from strmgen.services.streams import get_stream_by_id
-
-# keep track of which show‐NFOs we've already written this process
-_written_show_nfos: set[str] = set()
+from ..core.auth import get_auth_headers
 
 logger = logging.getLogger(__name__)
 RE_EPISODE_TAG = settings.TV_SERIES_EPIDOSE_RE
-
 log_tag = "[TV] 🖼️"
+
+# Track which show‐NFOs we've already written this run
+_written_show_nfos: set[str] = set()
 
 
 class Paths:
@@ -39,31 +40,29 @@ class Paths:
 
     @staticmethod
     def season_folder(root: Path, group: str, show: str, season: int) -> Path:
-        season_dir = target_folder(root, "TV Shows", group, show) / f"Season {season:02}"
-        # season_dir.mkdir(parents=True, exist_ok=True)
-        return season_dir
+        return target_folder(root, "TV Shows", group, show) / f"Season {season:02d}"
 
     @staticmethod
     def season_poster(dest_folder: Path, season: int) -> Path:
-        return dest_folder / f"Season {season:02}.tbn"
+        return dest_folder / f"Season {season:02d}.tbn"
 
     @staticmethod
     def episode_strm(dest_folder: Path, show: str, season: int, ep: int) -> Path:
-        base = f"{show} - S{season:02}E{ep:02}"
+        base = f"{show} - S{season:02d}E{ep:02d}"
         return dest_folder / f"{base}.strm"
 
     @staticmethod
     def episode_nfo(dest_folder: Path, show: str, season: int, ep: int) -> Path:
-        base = f"{show} - S{season:02}E{ep:02}"
+        base = f"{show} - S{season:02d}E{ep:02d}"
         return dest_folder / f"{base}.nfo"
 
     @staticmethod
     def episode_image(dest_folder: Path, show: str, season: int, ep: int) -> Path:
-        base = f"{show} - S{season:02}E{ep:02}"
+        base = f"{show} - S{season:02d}E{ep:02d}"
         return dest_folder / f"{base}.jpg"
 
 
-def write_assets(
+async def write_assets(
     stream: DispatcharrStream,
     show: str,
     season: int,
@@ -75,192 +74,156 @@ def write_assets(
     episode_meta: EpisodeMeta,
     headers: Dict[str, str]
 ) -> bool:
-    """Write .strm file, NFOs, and download images."""
+    """
+    Async write of .strm, NFOs, and images for a TV episode.
+    """
     global _written_show_nfos
-    
-    # Show-level NFO and images
-    if mshow and settings.write_nfo:
-        # Write the show NFO
-        show_nfo_path = Paths.show_nfo(show_folder, mshow.name)
 
-        # only write if user wants updates, or if we haven't written it yet
-        if settings.write_nfo and show not in _written_show_nfos:
-            write_tvshow_nfo(mshow.raw, show_nfo_path)
+    # 1) Show‐level NFO & images
+    if mshow and settings.write_nfo:
+        if show not in _written_show_nfos:
+            # write_tvshow_nfo is sync; run in thread
+            await asyncio.to_thread(write_tvshow_nfo, mshow.raw, Paths.show_nfo(show_folder, mshow.name))
             _written_show_nfos.add(show)
             if settings.update_tv_series_nfo:
                 return True
 
+        # download poster & backdrop
+        await download_if_missing(log_tag, f"{mshow.name} poster", mshow.poster_path,
+                                  Paths.show_image(show_folder, "poster.jpg"))
+        await download_if_missing(log_tag, f"{mshow.name} backdrop", mshow.backdrop_path,
+                                  Paths.show_image(show_folder, "fanart.jpg"))
 
-        # Download poster and backdrop (if missing)
-        download_if_missing(
-            log_tag,
-            f"{mshow.name} poster",
-            mshow.poster_path,
-            Paths.show_image(show_folder, "poster.jpg"),
-        )
-        download_if_missing(
-            log_tag,
-            f"{mshow.name} backdrop",
-            mshow.backdrop_path,
-            Paths.show_image(show_folder, "fanart.jpg"),
-        )
-
-    # Season poster
+    # 2) Season‐level poster
     if mshow:
-        season_meta = get_season_meta(mshow.id, season)
-        download_if_missing(
-            log_tag,
-            f"{mshow.name} Season {season:02} poster",
-            season_meta.poster_path if season_meta else None,
-            Paths.season_poster(season_folder, season),
-        )
+        season_meta = await get_season_meta(mshow.id, season)
+        poster_path = season_meta.poster_path if season_meta else None
+        await download_if_missing(log_tag,
+                                  f"{mshow.name} Season {season:02d} poster",
+                                  poster_path,
+                                  Paths.season_poster(season_folder, season))
 
-    # Write .strm file
-    if not write_strm_file(strm_path, headers, stream):
+    # 3) Write .strm file
+    ok = await write_strm_file(strm_path, headers, stream)
+    if not ok:
         logger.warning("[TV] ❌ Failed writing .strm for: %s", strm_path)
         return False
 
-    # Episode NFO and still image
+    # 4) Episode NFO & still image
     if settings.write_nfo:
-        ep_nfo = Paths.episode_nfo(season_folder, mshow.name if mshow else show, season, ep)
-        write_if(settings.write_nfo_only_if_not_exists, ep_nfo, write_episode_nfo, episode_meta.raw)
-        download_if_missing(
-            log_tag,
-            f"{mshow.name if mshow else show} S{season:02}E{ep:02} still",
-            episode_meta.still_path,
-            Paths.episode_image(season_folder, mshow.name if mshow else show, season, ep),
-        )
-
+        ep_nfo = Paths.episode_nfo(season_folder,
+                                   mshow.name if mshow else show,
+                                   season,
+                                   ep)
+        await asyncio.to_thread(write_if,
+                                settings.write_nfo_only_if_not_exists,
+                                ep_nfo,
+                                write_episode_nfo,
+                                episode_meta.raw)
+        await download_if_missing(log_tag,
+                                  f"{mshow.name if mshow else show} S{season:02d}E{ep:02d} still",
+                                  episode_meta.still_path,
+                                  Paths.episode_image(season_folder,
+                                                      mshow.name if mshow else show,
+                                                      season,
+                                                      ep))
     return True
 
 
-def download_subtitles_if_enabled(
+async def download_subtitles_if_enabled(
     show: str,
     season: int,
     ep: int,
     season_folder: Path,
     mshow: Optional[TVShow],
 ) -> None:
-    """Download subtitles if the feature is enabled."""
+    """
+    Async download of episode subtitles if enabled.
+    """
     if settings.opensubtitles_download:
         logger.info("[SUB] 🔽 Downloading subtitles for: %s S%02dE%02d", show, season, ep)
-        tmdb_id = (
-            mshow.external_ids.get("imdb_id")
-            if mshow and mshow.external_ids
-            else None
-        )
-        download_episode_subtitles(
+        tmdb_id = (mshow.external_ids.get("imdb_id")
+                   if mshow and mshow.external_ids else None)
+        await download_episode_subtitles(
             show,
             season,
             ep,
             season_folder,
-            tmdb_id=tmdb_id or (str(mshow.id) if mshow else None),
+            tmdb_id=tmdb_id or (str(mshow.id) if mshow else None)
         )
 
 
-def process_tv(
+async def process_tv(
     stream: DispatcharrStream,
     root: Path,
     group: str,
     headers: Dict[str, str]
 ) -> None:
     """
-    Process a single TV episode entry:
-      1. Parse SxxExx tag
-      2. Lookup & cache TMDb metadata
-      3. Filter by thresholds
-      4. Write .strm, NFOs, images, and subtitles
+    Async processing for a single TV episode:
+      1) Parse SxxExx
+      2) Lookup and cache show metadata
+      3) Filter by threshold
+      4) Write assets & subtitles
     """
     match = RE_EPISODE_TAG.match(stream.name)
     if not match:
-        logger.info("[TV] ❌ No SxxExx pattern matched in: %s", stream.name)
+        logger.info("[TV] ❌ No SxxExx pattern in: %s", stream.name)
         return
 
     show = clean_name(match.group(1))
-
     season = int(match.group(2))
     ep = int(match.group(3))
-    logger.info("[TV] 📺 Detected TV episode: %s S%02dE%02d", show, season, ep)
+    logger.info("[TV] 📺 Episode: %s S%02dE%02d", show, season, ep)
 
-    # Ensure metadata
-    mshow = lookup_show(show)
+    # lookup show metadata
+    mshow = await lookup_show(show)
     if not mshow:
         return
-    if is_skipped("TV", mshow.id):
-        logger.info("[TV] ⏭️ Skipped show (cached): %s", show)
+    if await asyncio.to_thread(is_skipped, "TV", mshow.id):
+        logger.info("[TV] ⏭️ Skipped show: %s", show)
         return
-    if not filter_by_threshold(stream.name, mshow.raw if mshow else None):
-        mark_skipped("TV", group, mshow, stream)
-        logger.info("[TV] 🚫 Show '%s' failed threshold filters", show)
+    if not await asyncio.to_thread(filter_by_threshold, stream.name, mshow.raw if mshow else None):
+        await asyncio.to_thread(mark_skipped, "TV", group, mshow, stream)
+        logger.info("[TV] 🚫 Threshold filter failed for: %s", show)
         return
-
     if settings.update_tv_series_nfo and show in _written_show_nfos:
         return
 
-    # Prepare folders and paths
+    # prepare paths
     show_folder = target_folder(root, "TV Shows", group, show)
     season_folder = Paths.season_folder(root, group, show, season)
     strm_path = Paths.episode_strm(season_folder, show, season, ep)
 
-    # Fetch episode metadata
-    episode_meta = None
-    if mshow:
-        episode_meta = get_episode_meta(mshow.id, season, ep)
+    # fetch episode metadata
+    episode_meta = await get_episode_meta(mshow.id, season, ep)
     if not episode_meta:
         logger.warning("[TV] ❌ No metadata for episode: %s S%02dE%02d", show, season, ep)
         return
 
-    if mshow.name.casefold() != show.casefold():
-        mshow.name = show
-
-    # Write assets and subtitles
-    if write_assets(
-        stream,
-        show,
-        season,
-        ep,
-        show_folder,
-        season_folder,
-        strm_path,
-        mshow,
-        episode_meta,
-        headers
-    ):
-        download_subtitles_if_enabled(show, season, ep, season_folder, mshow)
+    # write assets and subtitles
+    if await write_assets(stream, show, season, ep, show_folder, season_folder, strm_path, mshow, episode_meta, headers):
+        await download_subtitles_if_enabled(show, season, ep, season_folder, mshow)
 
 
-def reprocess_tv(skipped: SkippedStream) -> bool:
+async def reprocess_tv(skipped: SkippedStream) -> bool:
     """
-    Re‐run process_tv on a single skipped TV show, fetching its DispatcharrStream by ID.
+    Async reprocess of a skipped TV show.
     """
-    headers = get_auth_headers()
-
+    headers = await get_auth_headers()
     try:
-        streams = fetch_streams(
-            group=skipped["group"],
-            stream_type=skipped["stream_type"],
-            headers=headers,
-            timeout=10
-        )
+        streams = await fetch_streams(skipped["group"], skipped["stream_type"], headers=headers)
         if not streams:
-            logger.error(
-                "Cannot reprocess TV show %s (%s): no streams found",
-                skipped["name"], skipped["tmdb_id"]
-            )
+            logger.error("Cannot reprocess TV %s: no streams", skipped["name"])
             return False
-        
-        root    = Path(settings.output_root)
 
+        root = Path(settings.output_root)
         for stream in streams:
-            process_tv(stream, root, skipped["group"], headers)
+            await process_tv(stream, root, skipped["group"], headers)
 
-        set_reprocess(skipped["tmdb_id"], False)
-        logger.info("✅ Reprocessed TV show %s (%s)", skipped["name"], skipped["tmdb_id"])
+        await asyncio.to_thread(set_reprocess, skipped["tmdb_id"], False)
+        logger.info("✅ Reprocessed TV show %s", skipped["name"])
         return True
     except Exception as e:
-        logger.error(
-            "Cannot fetch DispatcharrStream for TV %s (dispatcharr_id=%s): %s",
-            skipped["name"], skipped["dispatcharr_id"], e,
-            exc_info=True
-        )
+        logger.error("Error reprocessing TV %s: %s", skipped["name"], e, exc_info=True)
         return False

@@ -181,7 +181,7 @@ async def write_strm_file(
         logger.warning("[STRM] ⚠️ Stream #%d metadata unavailable, skipping", stream.id)
         return False
 
-    if not stream.url:
+    if not stream.url or not stream.proxy_url:
         logger.warning("[STRM] ⚠️ Stream #%d has no URL, skipping", stream.id)
         return False
 
@@ -195,7 +195,7 @@ async def write_strm_file(
     # Check existing file content
     if await asyncio.to_thread(path.exists):
         existing = await asyncio.to_thread(path.read_text, encoding="utf-8")
-        if existing.strip() == stream.url.strip():
+        if existing.strip() == stream.proxy_url.strip():
             logger.info("[STRM] ⚠️ .strm up-to-date: %s", path)
             return True
         else:

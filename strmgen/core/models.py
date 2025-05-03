@@ -1,9 +1,10 @@
 
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
+from ..core.config import settings
 from typing import Optional, Dict, List, Any
 from pathlib import Path
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, root_validator
 
 @dataclass
 class DispatcharrStream:
@@ -20,7 +21,17 @@ class DispatcharrStream:
     is_custom: bool
     channel_group: int
     stream_hash: str
+    proxy_url: Optional[str] = None
 
+    @property
+    def proxy_url1(self) -> str:
+        """
+        Returns True if updated_at falls on “today” in UTC.
+        """
+        if not self.stream_hash:
+            return self.url
+        return f"{settings.api_base}{settings.stream_base_url}{self.stream_hash}"
+    
     @property
     def was_updated_today(self) -> bool:
         """
@@ -53,6 +64,8 @@ class DispatcharrStream:
                 # fallback without microseconds
                 updated_at = datetime.strptime(str(ts), "%Y-%m-%dT%H:%M:%SZ")
 
+        new_url = f"{settings.api_base}/{settings.stream_base_url}{data.get("stream_hash")}"
+
         return cls(
             id=data["id"],
             name=data["name"],
@@ -67,7 +80,14 @@ class DispatcharrStream:
             is_custom=data.get("is_custom", False),
             channel_group=data.get("channel_group", 0),
             stream_hash=data["stream_hash"],
+            proxy_url=new_url,
         )
+
+
+
+
+
+
 
 class Stream(BaseModel):
     id: int
@@ -84,6 +104,20 @@ class Stream(BaseModel):
     channel_group: int
     stream_hash: str
 
+    proxy_url: Optional[str]
+
+    @root_validator(pre=True)
+    def compute_proxy_url(cls, values):
+        # grab the raw hash (or empty string)
+        sh = values.get("stream_hash") or ""
+        if sh:
+            api = settings.api_base.rstrip("/")
+            path = settings.stream_base_url.lstrip("/")
+            values["proxy_url"] = f"{api}/{path}/{sh}"
+        else:
+            # fall back to the original URL
+            values["proxy_url"] = values.get("url", "")
+        return values
 
 @dataclass
 class Movie:

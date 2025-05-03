@@ -229,12 +229,41 @@ async def download_if_missing(
     return True
 
 async def tmdb_lookup_tv_show(show: str) -> Optional[Dict[str, Any]]:
+    """
+    Look up a TV show in TMDb, returning the best-matching result.
+    Handles both:
+      - search_any_tmdb returning a dict with "results": [...]
+      - search_any_tmdb returning a single dict (one result)
+    """
+    # return cached if present
     if show in _tmdb_show_cache:
         return _tmdb_show_cache[show]
+
     data = await search_any_tmdb(show)
-    results = data.get("results", []) if data else []
-    candidates = [r for r in results if r.get("media_type") == "tv"] or results
-    best = max(candidates, key=lambda i: SequenceMatcher(None, show.lower(), (i.get("name") or i.get("title", "")).lower()).ratio()) if candidates else None
+    # normalize into a list of candidates
+    if isinstance(data, dict) and "results" in data:
+        candidates = data["results"] or []
+    elif isinstance(data, list):
+        candidates = data
+    elif isinstance(data, dict):
+        # single-object response
+        candidates = [data]
+    else:
+        candidates = []
+
+    # prefer TV entries
+    tvs = [r for r in candidates if r.get("media_type") == "tv"]
+    candidates = tvs or candidates
+
+    if not candidates:
+        _tmdb_show_cache[show] = None
+        return None
+
+    def similarity(item: Dict[str, Any]) -> float:
+        title = (item.get("name") or item.get("title") or "").lower()
+        return SequenceMatcher(None, show.lower(), title).ratio()
+
+    best = max(candidates, key=similarity)
     _tmdb_show_cache[show] = best
     return best
 

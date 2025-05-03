@@ -9,7 +9,7 @@ from collections import deque
 import aiofiles
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from starlette.websockets import WebSocketState
+from starlette.concurrency import run_in_threadpool
 
 from strmgen.core.logger import LOG_PATH, setup_logger
 from strmgen.api.schemas import LogsResponse, ClearResponse
@@ -39,6 +39,21 @@ async def tail_f(path: Path):
         logger.exception("Error streaming from log file %s", path)
         raise
 
+def tail_and_count(path: Path, n: Optional[int]) -> tuple[list[str], int]:
+    total = 0
+    if n is None:
+        # Just read everything
+        with path.open("r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+            return lines, len(lines)
+
+    # Read once, keep last n lines in a deque
+    dq: deque[str] = deque(maxlen=n)
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            total += 1
+            dq.append(line.rstrip("\n"))
+    return list(dq), total
 
 def tail_lines_sync(path: Path, n: int) -> List[str]:
     """
@@ -54,38 +69,24 @@ def tail_lines_sync(path: Path, n: int) -> List[str]:
 
 @router.get("", response_model=LogsResponse)
 async def get_logs(limit: Optional[int] = None):
-    """
-    GET /api/v1/logs?limit={n}
-    Return the last `limit` log lines (or all if not specified).
-    """
     logger.info("GET /api/v1/logs called with limit=%s", limit)
+
     if not LOG_PATH.exists():
         return LogsResponse(total=0, logs=[])
 
-    if limit is not None:
-        if limit <= 0 or limit > MAX_LOG_LINES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"limit must be between 1 and {MAX_LOG_LINES}"
-            )
-        lines = tail_lines_sync(LOG_PATH, limit)
-        try:
-            with LOG_PATH.open("r", encoding="utf-8") as f:
-                total = sum(1 for _ in f)
-        except Exception:
-            logger.exception("Error counting lines in %s", LOG_PATH)
-            total = len(lines)
-    else:
-        try:
-            content = LOG_PATH.read_text(encoding="utf-8")
-        except Exception:
-            logger.exception("Error reading full log file")
-            raise HTTPException(status_code=500, detail="Could not read log file")
-        lines = content.splitlines()
-        total = len(lines)
+    if limit is not None and (limit <= 0 or limit > MAX_LOG_LINES):
+        raise HTTPException(
+            status_code=400,
+            detail=f"limit must be between 1 and {MAX_LOG_LINES}"
+        )
 
+    # offload combined work
+    lines, total = await run_in_threadpool(tail_and_count, LOG_PATH, limit)
     return LogsResponse(total=total, logs=lines)
 
+def count_lines_sync(path: Path) -> int:
+    with path.open("r", encoding="utf-8") as f:
+        return sum(1 for _ in f)
 
 @router.get("/download")
 def download_logs():

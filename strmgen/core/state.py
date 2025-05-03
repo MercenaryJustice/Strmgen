@@ -7,6 +7,7 @@ from dataclasses import is_dataclass, asdict
 
 from .config import CONFIG_PATH
 from .utils import setup_logger
+from strmgen.core.models import DispatcharrStream
 
 logger = setup_logger(__name__)
 
@@ -39,6 +40,67 @@ def _init_db() -> None:
     )
     _conn.commit()
 
+
+    # ——————————————————————————————
+    # 2) Ensure our version‐tracking table exists
+    # ——————————————————————————————
+    _conn.execute("""
+      CREATE TABLE IF NOT EXISTS schema_version (
+        version INTEGER NOT NULL
+      );
+    """)
+    # If it’s brand new, insert version 0
+    cur = _conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()
+    if cur[0] == 0:
+        _conn.execute("INSERT INTO schema_version (version) VALUES (0)")
+    _conn.commit()
+
+    # ——————————————————————————————
+    # 3) Fetch the current version
+    # ——————————————————————————————
+    cur = _conn.execute("SELECT version FROM schema_version").fetchone()
+    current_version = cur["version"] if isinstance(cur, sqlite3.Row) else cur[0]
+
+    # ——————————————————————————————
+    # 4) List out migrations in order
+    # ——————————————————————————————
+    migrations = [
+        (1, """
+            ALTER TABLE skipped_streams
+            ADD COLUMN dispatcharr_id INTEGER NOT NULL DEFAULT 0
+        """),
+        (2, """
+            CREATE INDEX IF NOT EXISTS idx_skipped_dispatcharr
+              ON skipped_streams(dispatcharr_id)
+        """),
+        # future migrations: (3, "... DDL or data changes ..."),
+    ]
+
+    # ——————————————————————————————
+    # 5) Apply any pending migrations
+    # ——————————————————————————————
+    for target_version, sql in migrations:
+        if current_version < target_version:
+            try:
+                # apply the migration
+                _conn.execute(sql)
+                _conn.execute(
+                    "UPDATE schema_version SET version = ?", (target_version,)
+                )
+                _conn.commit()
+                current_version = target_version
+                logger.info("Migrated DB schema to version %d", target_version)
+            except Exception as e:
+                # Log the error *and* the SQL that failed
+                logger.warning(
+                    "Skipping migration %d due to error: %s\nSQL:\n%s",
+                    target_version,
+                    e,
+                    sql
+                )
+                _conn.rollback()
+                continue
+
 # initialize on import
 _init_db()
 
@@ -58,7 +120,7 @@ def is_skipped(stream_type: str, tmdb_id: int) -> bool:
     return bool(row)
 
 
-def mark_skipped(stream_type: str, group: str, mshow: Any) -> bool:
+def mark_skipped(stream_type: str, group: str, mshow: Any, stream: DispatcharrStream) -> bool:
     """
     Insert a row into skipped_streams for the given stream_type and group.
     Supports dataclass Movie/TVShow, objects with a .raw attr, or plain objects.
@@ -70,6 +132,8 @@ def mark_skipped(stream_type: str, group: str, mshow: Any) -> bool:
         data_dict = mshow.raw
     else:
         data_dict = getattr(mshow, "__dict__", {})
+
+    dispatcharr_id = stream.id
 
     # 2) Pick an ID field
     tmdb_id = None
@@ -95,15 +159,31 @@ def mark_skipped(stream_type: str, group: str, mshow: Any) -> bool:
         return False
 
 
+    # 5) Upsert (insert new or update existing)
+    sql = """
+        INSERT INTO skipped_streams
+          (tmdb_id, dispatcharr_id, stream_type, group_name, name, data, reprocess)
+        VALUES (?,      ?,              ?,           ?,          ?,    ?,       ?)
+        ON CONFLICT(tmdb_id) DO UPDATE SET
+          dispatcharr_id = excluded.dispatcharr_id,
+          stream_type    = excluded.stream_type,
+          group_name     = excluded.group_name,
+          name           = excluded.name,
+          data           = excluded.data,
+          reprocess      = excluded.reprocess
+    """
     try:
-        # 5) Finally insert (ignore if already exists)
         cursor = _conn.execute(
-            """
-            INSERT OR IGNORE INTO skipped_streams
-            (tmdb_id, stream_type, group_name, name, data, reprocess)
-            VALUES (?,      ?,           ?,          ?,    ?,       ?)
-            """,
-            (tmdb_id, stream_type, group, name, json.dumps(data_dict), 0)
+            sql,
+            (
+                tmdb_id,
+                dispatcharr_id,
+                stream_type,
+                group,
+                name,
+                json.dumps(data_dict),
+                0,  # always reset reprocess to “skip next runs”
+            ),
         )
         _conn.commit()
     except Exception as e:
@@ -119,30 +199,37 @@ def mark_skipped(stream_type: str, group: str, mshow: Any) -> bool:
 
 class SkippedStream(TypedDict):
     tmdb_id: int
+    dispatcharr_id: int
     stream_type: str
     group: str
     name: str
     data: dict[str, Any]
     reprocess: bool
 
-def list_skipped(stream_type: Optional[str] = None) -> List[SkippedStream]:
+def list_skipped(stream_type: Optional[str] = None, tmdb_id: Optional[int] = None) -> List[SkippedStream]:
     """
     Return a list of all rows in skipped_streams as dicts:
-    [{ "tmdb_id": ..., "stream_type": ..., "group": ..., "name": ..., "data": ..., "reprocess": ... }, ...]
+    [{ "tmdb_id": ..., "dispatcharr_id": ..., "stream_type": ..., "group": ..., "name": ..., "data": ..., "reprocess": ... }, ...]
     """
     if stream_type is None:
         rows = _conn.execute(
-            "SELECT tmdb_id, stream_type, group_name, name, data, reprocess FROM skipped_streams"
+            "SELECT tmdb_id, dispatcharr_id, stream_type, group_name, name, data, reprocess FROM skipped_streams"
+        ).fetchall()
+    elif tmdb_id is not None:
+        rows = _conn.execute(
+            "SELECT tmdb_id, dispatcharr_id, stream_type, group_name, name, data, reprocess FROM skipped_streams WHERE stream_type=? AND tmdb_id=?",
+            (stream_type, tmdb_id),
         ).fetchall()
     else:
         rows = _conn.execute(
-            "SELECT tmdb_id, stream_type, group_name, name, data, reprocess FROM skipped_streams WHERE stream_type=?",
+            "SELECT tmdb_id, dispatcharr_id, stream_type, group_name, name, data, reprocess FROM skipped_streams WHERE stream_type=?",
             (stream_type,),
         ).fetchall()
     out: List[SkippedStream] = []
     for r in rows:
         out.append({
             "tmdb_id":     r["tmdb_id"],
+            "dispatcharr_id":     r["dispatcharr_id"],
             "stream_type": r["stream_type"],
             "group":       r["group_name"],
             "name":        r["name"],

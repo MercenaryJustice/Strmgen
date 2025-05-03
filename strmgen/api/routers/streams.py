@@ -69,4 +69,21 @@ async def api_set_reprocess(
     if "reprocess" not in payload:
         raise HTTPException(400, "Missing 'reprocess' in body")
     update_skipped_reprocess(tmdb_id, stream_type, bool(payload["reprocess"]))
+
+    if bool(payload["reprocess"]):
+        # Reprocess the stream
+        try:
+            skipped = list_skipped(stream_type, tmdb_id)
+            for s in skipped:
+                if s["tmdb_id"] == tmdb_id:
+                    if s["stream_type"].lower() == "movie":
+                        from strmgen.services.movies import reprocess_movie
+                        reprocess_movie(s)
+                    else:
+                        from strmgen.services.tv import reprocess_tv
+                        reprocess_tv(s)
+                    break
+        except Exception as e:
+            logger.error("Failed to reprocess stream: %s", e)
+            raise HTTPException(500, "Error reprocessing stream")
     return {"status": "ok"}

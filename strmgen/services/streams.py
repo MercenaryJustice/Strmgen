@@ -8,7 +8,7 @@ from ..core.http import session as API_SESSION
 from ..core.config import settings
 from ..core.utils import safe_mkdir
 from ..core.utils import setup_logger
-from ..core.auth import get_access_token, refresh_access_token_if_needed
+from ..core.auth import get_auth_headers
 from ..core.models import Stream, DispatcharrStream
 logger = setup_logger(__name__)
 
@@ -32,8 +32,7 @@ def _request_with_refresh(
             body: Dict[str, Any] = {}
         if body.get("code") == "token_not_valid":
             logger.info("[AUTH] 🔄 Token expired, refreshing & retrying")
-            new_token = get_access_token()
-            headers["Authorization"] = f"Bearer {new_token}"
+            headers = get_auth_headers()
             r = func(url, headers=headers, **kwargs)
     return r
 
@@ -205,9 +204,55 @@ def fetch_groups() -> List[str]:
     """
     Return the list of channel‐group names from the STRMGen API.
     """
-    token = refresh_access_token_if_needed()
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = get_auth_headers()
     url = f"{settings.api_base}/api/channels/streams/groups/"
     resp = API_SESSION.get(url, headers=headers, timeout=10)
     resp.raise_for_status()
     return resp.json()
+
+
+def fetch_streams(
+    group: str,
+    stream_type: str,
+    headers: Dict[str, str] = None,
+    timeout: int = 10,
+    page: int = 1,
+    page_size: int = 1000,
+) -> List[DispatcharrStream]:
+    """
+    Fetch all DispatchARR streams matching a group and type,
+    then convert each JSON entry into a DispatcharrStream.
+    
+    GET {api_base}/api/channels/streams/
+      ?search={group}
+      &stream_type={stream_type}
+      &ordering=name
+      &page={page}
+      &page_size={page_size}
+    """
+    url = f"{settings.api_base.rstrip('/')}/api/channels/streams/"
+    params = {
+        "search":     group,
+        "stream_type": stream_type,
+        "ordering":   "name",
+        "page":       page,
+        "page_size":  page_size,
+    }
+    hdrs = headers or get_auth_headers()
+    hdrs["accept"] = "application/json"
+
+    resp = requests.get(url, headers=hdrs, params=params, timeout=timeout)
+    resp.raise_for_status()
+    body: Dict[str, Any] = resp.json()
+
+    # The DRF-style list endpoint usually returns {"results": [...], ...}
+    items = body.get("results", body if isinstance(body, list) else [])
+    streams: List[DispatcharrStream] = []
+    for entry in items:
+        try:
+            streams.append(DispatcharrStream.from_dict(entry))
+        except Exception as e:
+            # log & skip malformed entries
+            logger = __import__("logging").getLogger(__name__)
+            logger.warning("Skipping invalid stream entry: %s — %s", entry, e)
+    return streams

@@ -83,3 +83,10 @@ def refresh_access_token_if_needed() -> Optional[str]:
         return access
     except RequestException:
         return get_access_token()
+
+def get_auth_headers() -> Dict[str, str]:
+    """
+    Return the headers needed for authenticated API requests.
+    """
+    token = refresh_access_token_if_needed()
+    return {"Authorization": f"Bearer {token}"}

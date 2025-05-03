@@ -11,7 +11,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.events import EVENT_JOB_EXECUTED
 
 from .config import settings, CONFIG_PATH, _json_cfg
-from .auth import refresh_access_token_if_needed
+from .auth import get_auth_headers
 from ..services.streams import fetch_streams_by_group_name
 from ..services._24_7 import process_24_7
 from ..services.movies import process_movie
@@ -87,8 +87,7 @@ def schedule_on_startup():
 # ─── Core pipeline logic ─────────────────────────────────────────────────────
 def cli_main(stop_event: threading.Event | None = None):
     logger.info("Pipeline starting")
-    token = refresh_access_token_if_needed()
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = get_auth_headers()
 
     def should_stop() -> bool:
         return stop_event is not None and stop_event.is_set()

@@ -9,6 +9,9 @@ from .tmdb import Movie, get_movie, download_if_missing
 from ..core.utils import clean_name, target_folder, write_if, write_movie_nfo, filter_by_threshold
 from ..core.logger import setup_logger
 from ..core.state import mark_skipped, is_skipped
+from strmgen.core.state import SkippedStream, set_reprocess
+from strmgen.services.streams import get_stream_by_id
+from strmgen.core.auth import get_auth_headers
 
 logger = setup_logger(__name__)
 TITLE_YEAR_RE = settings.MOVIE_TITLE_YEAR_RE
@@ -78,7 +81,7 @@ def process_movie(
         return
 
     if not filter_by_threshold(stream.name, movie.raw if movie else None):
-        mark_skipped("MOVIE", group, movie)
+        mark_skipped("MOVIE", group, movie, stream)
         logger.info("[MOVIE] 🚫 Movie '%s' failed threshold filters", title)
         return
 
@@ -112,3 +115,59 @@ def process_movie(
         logger.info("[MOVIE] 🔽 Downloading subtitles for: %s", title)
         tmdb_id = movie.raw.get("imdb_id") or str(movie.id)
         download_movie_subtitles(movie, folder, tmdb_id=tmdb_id)
+
+
+def reprocess_movie(skipped: SkippedStream) -> bool:
+    """
+    Re‐run process_movie on a single skipped movie, fetching its DispatcharrStream by ID.
+    """
+    # 1) Fetch the original DispatcharrStream
+
+    try:
+        if skipped["dispatcharr_id"] is None:
+            logger.error(
+                "Cannot reprocess movie %s (%s): no Dispatcharr ID",
+                skipped["name"], skipped["tmdb_id"]
+            )
+            return False
+        if skipped["dispatcharr_id"] == 0:
+            logger.error(
+                "Cannot reprocess movie %s (%s): Dispatcharr ID is 0",
+                skipped["name"], skipped["tmdb_id"]
+            )
+            return False
+        headers = get_auth_headers()
+        raw = get_stream_by_id(
+            skipped["dispatcharr_id"], headers=headers, timeout=10
+        )
+        if not raw:
+            logger.error(
+                "Cannot reprocess movie %s (%s): no DispatcharrStream found. Delete from skipped list.",
+                skipped["name"], skipped["tmdb_id"]
+            )
+            return False
+        stream = DispatcharrStream.from_dict(raw)
+    except Exception as e:
+        logger.error(
+            "Cannot fetch DispatcharrStream for movie %s (dispatcharr_id=%s): %s",
+            skipped["name"], skipped["dispatcharr_id"], e,
+            exc_info=True
+        )
+        return False
+
+    # 2) Pass into your normal pipeline
+    root    = Path(settings.output_root)
+
+    try:
+        process_movie(stream, root, skipped["group"], headers)
+        set_reprocess(skipped["tmdb_id"], False)
+        logger.info("✅ Reprocessed movie %s (%s)", skipped["name"], skipped["tmdb_id"])
+        return True
+
+    except Exception as e:
+        logger.error(
+            "Reprocess failed for movie %s (%s): %s",
+            skipped["name"], skipped["tmdb_id"], e,
+            exc_info=True
+        )
+        return False

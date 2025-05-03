@@ -66,6 +66,7 @@
       columns: [
         { title: "Type",      field: "stream_type", headerFilter: "select", headerFilterParams: { values: true, includeEmpty: true }, headerFilterFunc: "=", headerFilterLiveFilter: true },
         { title: "TMDb ID",   field: "tmdb_id",     sorter: "number", headerFilter: "input", headerFilterLiveFilter: true },
+        { title: "DispatchARR ID", field: "dispatcharr_id", sorter: "number", headerFilter: "input", headerFilterLiveFilter: true },
         { title: "Group",     field: "group",       headerFilter: "input" },
         { title: "Name",      field: "name",        headerFilter: "input", widthGrow: 2 },
         {
@@ -209,4 +210,36 @@
     refresh();
   });
 </script>
+<script>
+  document.querySelectorAll(".reprocess-checkbox").forEach(cb =>
+    cb.addEventListener("change", async ev => {
+      if (!ev.target.checked) return;
+  
+      // find the row’s data
+      const tr = ev.target.closest("tr");
+      const payload = {
+        tmdb_id:    +tr.dataset.tmdb,
+        dispatcharr_id: +tr.dataset.dispatcharr,  // if you store it in data-dispatcharr
+        stream_type: tr.dataset.type,
+        group:       tr.dataset.group,            // and any other SkippedStream props…
+        name:        tr.dataset.name,
+        data:        JSON.parse(tr.dataset.raw)   // if you serialized it
+      };
+  
+      try {
+        const resp = await fetch("/api/skipped/reprocess", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify(payload)
+        });
+        if (!resp.ok) throw await resp.text();
+        alert(`Reprocessing ${payload.name}…`);
+      } catch(err) {
+        console.error(err);
+        alert(`Failed to queue reprocess: ${err}`);
+        ev.target.checked = false;
+      }
+    })
+  );
+  </script>
 {% endblock %}

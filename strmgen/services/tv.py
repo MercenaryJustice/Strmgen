@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Optional
 
-from ..core.state import mark_skipped, is_skipped
+from ..core.state import mark_skipped, is_skipped, SkippedStream, set_reprocess
 from ..core.config import settings
 from ..core.models import DispatcharrStream
 from .tmdb import TVShow, EpisodeMeta, lookup_show, get_season_meta, get_episode_meta, download_if_missing
@@ -15,7 +15,9 @@ from ..core.utils import (
     write_episode_nfo,
     clean_name
 )
-from .streams import write_strm_file
+from .streams import write_strm_file, fetch_streams
+from strmgen.core.auth import get_auth_headers
+from strmgen.services.streams import get_stream_by_id
 
 # keep track of which show‐NFOs we've already written this process
 _written_show_nfos: set[str] = set()
@@ -188,7 +190,7 @@ def process_tv(
         logger.info("[TV] ⏭️ Skipped show (cached): %s", show)
         return
     if not filter_by_threshold(stream.name, mshow.raw if mshow else None):
-        mark_skipped("TV", group, mshow)
+        mark_skipped("TV", group, mshow, stream)
         logger.info("[TV] 🚫 Show '%s' failed threshold filters", show)
         return
 
@@ -225,3 +227,40 @@ def process_tv(
         headers
     ):
         download_subtitles_if_enabled(show, season, ep, season_folder, mshow)
+
+
+def reprocess_tv(skipped: SkippedStream) -> bool:
+    """
+    Re‐run process_tv on a single skipped TV show, fetching its DispatcharrStream by ID.
+    """
+    headers = get_auth_headers()
+
+    try:
+        streams = fetch_streams(
+            group=skipped["group"],
+            stream_type=skipped["stream_type"],
+            headers=headers,
+            timeout=10
+        )
+        if not streams:
+            logger.error(
+                "Cannot reprocess TV show %s (%s): no streams found",
+                skipped["name"], skipped["tmdb_id"]
+            )
+            return False
+        
+        root    = Path(settings.output_root)
+
+        for stream in streams:
+            process_tv(stream, root, skipped["group"], headers)
+
+        set_reprocess(skipped["tmdb_id"], False)
+        logger.info("✅ Reprocessed TV show %s (%s)", skipped["name"], skipped["tmdb_id"])
+        return True
+    except Exception as e:
+        logger.error(
+            "Cannot fetch DispatcharrStream for TV %s (dispatcharr_id=%s): %s",
+            skipped["name"], skipped["dispatcharr_id"], e,
+            exc_info=True
+        )
+        return False

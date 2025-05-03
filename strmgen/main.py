@@ -5,7 +5,7 @@ from fastapi import FastAPI, APIRouter
 from contextlib import asynccontextmanager
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from strmgen.api.routers import logs, process, schedule, streams, tmdb
+from strmgen.api.routers import logs, process, schedule, streams, tmdb, skipped
 from strmgen.api.routers import settings
 from strmgen.web_ui.routes import router as ui_router
 from strmgen.core.auth import get_access_token
@@ -34,6 +34,7 @@ api_v1.include_router(streams.router,  prefix="/streams")
 api_v1.include_router(logs.router,     prefix="/logs")
 api_v1.include_router(tmdb.router,     prefix="/tmdb")
 api_v1.include_router(settings.router, prefix="/settings")
+api_v1.include_router(skipped.router, prefix="/skipped")
 app.include_router(api_v1)
 
 

@@ -2,19 +2,28 @@
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
-from ..core.config import settings
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, NamedTuple
+from enum import Enum
 from pathlib import Path
 from pydantic import BaseModel, root_validator
+
+from ..core.config import settings
 from ..core.fs_utils import clean_name
 
-TITLE_YEAR_RE = re.compile(r"^(.*)\s+\((\d{4})\)$")
+TITLE_YEAR_RE = settings.MOVIE_TITLE_YEAR_RE
+RE_EPISODE_TAG = settings.TV_SERIES_EPIDOSE_RE
+
+class MediaType(Enum):
+    MOVIE = "Movies"
+    TV   = "TV Shows"
+    _24_7   = "24-7"
 
 @dataclass
 class DispatcharrStream:
+    # ── Raw API fields ─────────────────────────────────────────────────────────
     id: int
-    name: str                # cleaned title (no trailing year)
-    year: Optional[int]      # parsed from raw name, if present
+    name: str                   # cleaned title/show (no trailing metadata)
+    year: Optional[int]         # only for movies
     url: str
     m3u_account: int
     logo_url: str
@@ -25,42 +34,74 @@ class DispatcharrStream:
     stream_profile_id: Optional[int]
     is_custom: bool
     channel_group: int
-    stream_hash: str
     channel_group_name: str
-    stream_type: Optional[str] = field(default=None, repr=False)
+    stream_hash: str
 
-    proxy_url: Optional[str] = field(default=None, repr=False)
-    
-    # ← new, computed paths (no need to pass these in)
-    base_path: Path     = field(init=False, repr=False)
-    strm_path: Path     = field(init=False, repr=False)
-    nfo_path: Path      = field(init=False, repr=False)
-    poster_path: Path   = field(init=False, repr=False)
-    backdrop_path: Path = field(init=False, repr=False)
+    # ── Populated in from_dict ────────────────────────────────────────────────
+    stream_type: MediaType            = field(repr=False)        # "movie" or "tv"
+    season:  Optional[int]      = field(default=None, repr=False)
+    episode: Optional[int]      = field(default=None, repr=False)
+
+    # ── Computed paths ─────────────────────────────────────────────────────────
+    base_path:     Path         = field(init=False, repr=False)
+    strm_path:     Path         = field(init=False, repr=False)
+    nfo_path:      Path         = field(init=False, repr=False)
+    poster_path:   Path         = field(init=False, repr=False)
+    backdrop_path: Path         = field(init=False, repr=False)
 
     def __post_init__(self):
-        # 1) ensure the movie folder exists & get its Path
-        self.base_path = MoviePaths.base_folder(
-            self.channel_group_name,
-            self.name,
-            self.year,
+        # pack into StreamInfo for easy reuse
+        info = StreamInfo(
+            group   = self.channel_group_name,
+            title   = self.name,
+            year    = self.year,
+            season  = self.season,
+            episode = self.episode,
         )
 
-        # 2) assign all the common file paths
-        self.strm_path     = MoviePaths.strm_path(self.channel_group_name, self.name, self.year)
-        self.nfo_path      = MoviePaths.nfo_path(self.channel_group_name, self.name, self.year)
-        self.poster_path   = MoviePaths.poster_path(self)   # tmdb arg unused in your implementation
-        self.backdrop_path = MoviePaths.backdrop_path(self) # same here
+        if self.stream_type is MediaType.TV:
+            # ── full‑episode if season+ep present
+            if info.season is not None and info.episode is not None:
+                self.base_path     = MediaPaths.season_folder(info)
+                self.strm_path     = MediaPaths.episode_strm(info)
+                self.nfo_path      = MediaPaths.episode_nfo(info)
+                self.poster_path   = MediaPaths.episode_image(info)
+                self.backdrop_path = MediaPaths.season_poster(info)
+
+            # ── show‑level fallback (no per‑episode data)
+            else:
+                # logger.warning("[TV] missing SxxExx for: %s", info.title)
+                self.base_path     = MediaPaths._base_folder(
+                                        MediaType.TV,
+                                        info.group,
+                                        info.title,
+                                        None
+                                     )
+                self.strm_path     = Path()
+                self.nfo_path      = MediaPaths.show_nfo(info)
+                self.poster_path   = MediaPaths.show_image(info, "poster.jpg")
+                self.backdrop_path = MediaPaths.show_image(info, "fanart.jpg")
+
+        else:
+            # ── movie
+            self.base_path     = MediaPaths._base_folder(
+                                    MediaType.MOVIE,
+                                    info.group,
+                                    info.title,
+                                    info.year
+                                 )
+            self.strm_path     = MediaPaths.movie_strm(info)
+            self.nfo_path      = MediaPaths.movie_nfo(info)
+            self.poster_path   = MediaPaths.movie_poster(info)
+            self.backdrop_path = MediaPaths.movie_backdrop(info)
 
     def _recompute_paths(self):
-        self.base_path     = MoviePaths.base_folder(self.channel_group_name, self.name, self.year)
-        self.strm_path     = MoviePaths.strm_path(self.channel_group_name, self.name, self.year)
-        self.nfo_path      = MoviePaths.nfo_path(self.channel_group_name, self.name, self.year)
-        self.poster_path   = MoviePaths.poster_path(self)
-        self.backdrop_path = MoviePaths.backdrop_path(self)
+        # re‑run exactly the same logic
+        self.__post_init__()
 
     @property
-    def proxy_url1(self) -> str:
+    def proxy_url(self) -> str:
+        # fall back to raw url if no hash
         if not self.stream_hash:
             return self.url
         return f"{settings.api_base}{settings.stream_base_url}{self.stream_hash}"
@@ -72,71 +113,81 @@ class DispatcharrStream:
         return self.updated_at.date() == datetime.now(timezone.utc).date()
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], channel_group_name: str) -> "DispatcharrStream":
-        # 1) coerce to str so raw_name is really a str
+    def from_dict(
+        cls,
+        data: Dict[str, Any],
+        channel_group_name: str,
+        stream_type: MediaType
+    ) -> Optional["DispatcharrStream"]:
         raw_name = str(data.get("name") or "")
-        m = TITLE_YEAR_RE.match(raw_name)
-        if m:
-            raw_title, raw_year = m.groups()
-            title = clean_name(raw_title)
-            year  = int(raw_year)
+
+        # ── parse movie title + year ──────────────────────────────────
+        if stream_type is MediaType.MOVIE:
+            m = TITLE_YEAR_RE.match(raw_name)
+            if m:
+                raw_title, raw_year = m.groups()
+                title = clean_name(raw_title)
+                year  = int(raw_year)
+            else:
+                title = clean_name(raw_name)
+                year  = None
+
+            season = episode = None
+
+        # ── parse TV show + SxxExx ────────────────────────────────────
         else:
-            title = clean_name(raw_name)
-            year  = None
+            match = RE_EPISODE_TAG.match(raw_name)
+            if not match:
+                # logger.info("[TV] ❌ No SxxExx tag in '%s'", raw_name)
+                return None
 
-        # 2) coerce all the other fields up front
-        url                  = str(data.get("url") or "")
-        m3u_account          = int(data.get("m3u_account") or 0)
-        logo_url             = str(data.get("logo_url") or "")
-        tvg_id               = str(data.get("tvg_id") or "")
-        channel_group        = int(data.get("channel_group") or 0)
-        stream_hash          = str(data.get("stream_hash") or "")
-        stream_type          = (str(data.get("stream_type"))
-                                if data.get("stream_type") is not None
-                                else None)
-        local_file_val       = data.get("local_file")
-        local_file           = Path(str(local_file_val)) if local_file_val else None
+            raw_show, ss, ee = match.groups()
+            title   = clean_name(raw_show)
+            year    = None
+            season  = int(ss)
+            episode = int(ee)
 
-        # parse updated_at…
+        # ── common fields ──────────────────────────────────────────────
+        url             = str(data.get("url") or "")
+        m3u_account     = int(data.get("m3u_account") or 0)
+        logo_url        = str(data.get("logo_url") or "")
+        tvg_id          = str(data.get("tvg_id") or "")
+        channel_group   = int(data.get("channel_group") or 0)
+        stream_hash     = str(data.get("stream_hash") or "")
+        local_file_val  = data.get("local_file")
+        local_file      = Path(str(local_file_val)) if local_file_val else None
+
         ts = data.get("updated_at")
         updated_at = None
         if ts:
             for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"):
                 try:
                     updated_at = datetime.strptime(str(ts), fmt)\
-                                         .replace(tzinfo=timezone.utc)
+                                     .replace(tzinfo=timezone.utc)
                     break
                 except ValueError:
                     continue
 
-        # build the proxy_url
-        proxy_url = (
-            f"{settings.api_base}{settings.stream_base_url}{stream_hash}"
-            if stream_hash else None
-        )
-
         return cls(
-            id                 = int(data["id"]),
-            name               = title,
-            year               = year,
-            url                = url,
-            m3u_account        = m3u_account,
-            logo_url           = logo_url,
-            tvg_id             = tvg_id,
-            local_file         = local_file,
-            current_viewers    = int(data.get("current_viewers") or 0),
-            updated_at         = updated_at,
-            stream_profile_id  = data.get("stream_profile_id"),
-            is_custom          = bool(data.get("is_custom", False)),
-            channel_group      = channel_group,
-            channel_group_name = channel_group_name,
-            stream_hash        = stream_hash,
-            stream_type        = stream_type,
-            proxy_url          = proxy_url,
+            id                  = int(data["id"]),
+            name                = title,
+            year                = year,
+            url                 = url,
+            m3u_account         = m3u_account,
+            logo_url            = logo_url,
+            tvg_id              = tvg_id,
+            local_file          = local_file,
+            current_viewers     = int(data.get("current_viewers") or 0),
+            updated_at          = updated_at,
+            stream_profile_id   = data.get("stream_profile_id"),
+            is_custom           = bool(data.get("is_custom", False)),
+            channel_group       = channel_group,
+            channel_group_name  = channel_group_name,
+            stream_hash         = stream_hash,
+            stream_type         = stream_type,
+            season              = season,
+            episode             = episode,
         )
-
-
-
 
 
 
@@ -215,8 +266,8 @@ class Movie:
 @dataclass
 class TVShow:
     # — your routing/group context —
-    channel_group_name: str                  # e.g. "Action", "Premium"
-    
+    channel_group_name: str                # e.g. "Action", "Premium"
+
     # — the TMDb fields you already have —
     id: int
     name: str
@@ -238,296 +289,268 @@ class TVShow:
     genre_names: List[str] = field(default_factory=list)
 
     # — computed paths (init=False so you don’t pass them in) —
-    show_folder: Path             = field(init=False, repr=False)
-    show_nfo_path: Path           = field(init=False, repr=False)
-    poster_local_path: Path       = field(init=False, repr=False)
-    backdrop_local_path: Path     = field(init=False, repr=False)
+    show_folder:         Path = field(init=False, repr=False)
+    show_nfo_path:       Path = field(init=False, repr=False)
+    poster_local_path:   Path = field(init=False, repr=False)
+    backdrop_local_path: Path = field(init=False, repr=False)
 
     def __post_init__(self):
-        # 1) ensure the base show folder exists
-        self.show_folder = TVPaths.show_folder(self.channel_group_name, self.name)
+        # pack into a minimal StreamInfo
+        info = StreamInfo(
+            group   = self.channel_group_name,
+            title   = self.name,
+            # movies use .year, tv doesn’t need it
+            year    = None,
+            season  = None,
+            episode = None,
+        )
 
-        # 2) path to the show-level .nfo
-        self.show_nfo_path = TVPaths.show_nfo(self.channel_group_name, self.name)
+        # 1) ensure the base show folder exists
+        #    …/TV Shows/<group>/<show>/
+        self.show_folder = MediaPaths._base_folder(
+            MediaType.TV,
+            info.group,
+            info.title,
+            None
+        )
+
+        # 2) path to the show‐level .nfo
+        #    …/TV Shows/<group>/<show>/<show>.nfo
+        self.show_nfo_path = MediaPaths.show_nfo(
+            info
+        )
 
         # 3) local filenames for poster & fanart
-        #    (download into these)
-        self.poster_local_path   = TVPaths.show_image(self.channel_group_name, self.name, "poster.jpg")
-        self.backdrop_local_path = TVPaths.show_image(self.channel_group_name, self.name, "fanart.jpg")
+        #    …/TV Shows/<group>/<show>/poster.jpg
+        #    …/TV Shows/<group>/<show>/fanart.jpg
+        self.poster_local_path   = MediaPaths.show_image(
+            info, "poster.jpg"
+        )
+        self.backdrop_local_path = MediaPaths.show_image(
+            info, "fanart.jpg"
+        )
 
     def _recompute_paths(self) -> None:
-        # 1) ensure the base show folder exists
-        self.show_folder = TVPaths.show_folder(self.channel_group_name, self.name)
-        # 2) path to the show-level .nfo
-        self.show_nfo_path = TVPaths.show_nfo(self.channel_group_name, self.name)
-        # 3) local filenames for poster & fanart
-        self.poster_local_path   = TVPaths.show_image(self.channel_group_name, self.name, "poster.jpg")
-        self.backdrop_local_path = TVPaths.show_image(self.channel_group_name, self.name, "fanart.jpg")
+        # same logic again
+        self.__post_init__()
 
 @dataclass
 class SeasonMeta:
     # — routing / grouping context —
-    channel_group_name: str                   # e.g. "Action", "Premium"
-    show: str                    # cleaned‐up show title, e.g. "The Great Show"
+    channel_group_name: str                # e.g. "Action", "Premium"
+    show:               str                # cleaned‐up show title, e.g. "The Great Show"
 
     # — TMDb season fields —
-    id: int
-    name: str
-    overview: str
-    air_date: str
-    episodes: List[Dict[str, Any]]
-    poster_path: Optional[str]
-    season_number: int
-    vote_average: float
-    raw: Dict[str, Any]
+    id:               int
+    name:             str
+    overview:         str
+    air_date:         str
+    episodes:         List[Dict[str, Any]]
+    poster_path:      Optional[str]
+    season_number:    int
+    vote_average:     float
+    raw:              Dict[str, Any]
 
     # — computed folders & files —
-    show_folder: Path           = field(init=False, repr=False)
-    season_folder: Path         = field(init=False, repr=False)
-    poster_local_path: Path     = field(init=False, repr=False)
+    show_folder:       Path = field(init=False, repr=False)
+    season_folder:     Path = field(init=False, repr=False)
+    poster_local_path: Path = field(init=False, repr=False)
 
     def __post_init__(self):
+        # pack into StreamInfo
+        info = StreamInfo(
+            group   = self.channel_group_name,
+            title   = self.show,
+            year    = None,
+            season  = self.season_number,
+            episode = None,
+        )
+
         # ensure …/TV Shows/<group>/<show>/ exists
-        self.show_folder = TVPaths.show_folder(self.channel_group_name, self.show)
+        self.show_folder = MediaPaths._base_folder(
+            MediaType.TV,
+            self.channel_group_name,
+            self.show,
+            None
+        )
 
         # ensure …/TV Shows/<group>/<show>/Season XX/ exists
-        self.season_folder = TVPaths.season_folder(
-            self.channel_group_name,
-            self.show,
-            self.season_number
-        )
+        self.season_folder = MediaPaths.season_folder(info)
 
         # local path where the season poster (Season XX.tbn) should live
-        self.poster_local_path = TVPaths.season_poster(
-            self.season_folder,
-            self.season_number
-        )
+        self.poster_local_path = MediaPaths.season_poster(info)
 
     def _recompute_paths(self) -> None:
-        # show folder …/TV Shows/<group>/<show>/
-        self.show_folder = TVPaths.show_folder(self.channel_group_name, self.show)
-        # season folder …/TV Shows/<group>/<show>/Season XX/
-        self.season_folder = TVPaths.season_folder(
-            self.channel_group_name,
-            self.show,
-            self.season_number
-        )
-        # poster …/Season XX/Season XX.tbn
-        self.poster_local_path = TVPaths.season_poster(
-            self.season_folder,
-            self.season_number
-        )
+        # rerun same logic
+        self.__post_init__()
 
 @dataclass
 class EpisodeMeta:
     #––– identity & context –––
-    group: str                   # e.g. “Action”, “Premium”
-    show: str                    # cleaned‐up show title, e.g. “The Great Show”
+    group:               str                # e.g. “Action”, “Premium”
+    show:                str                # cleaned‐up show title, e.g. “The Great Show”
 
     #––– TMDb fields –––
-    air_date: str
-    crew: List[Dict[str, Any]]
-    episode_number: int
-    guest_stars: List[Dict[str, Any]]
-    name: str                    # episode title
-    overview: str
-    id: int
-    production_code: str
-    runtime: Optional[int]
-    season_number: int
-    still_path: Optional[str]
-    vote_average: float
-    vote_count: int
-    raw: Dict[str, Any]
+    air_date:            str
+    crew:                List[Dict[str, Any]]
+    episode_number:      int
+    guest_stars:         List[Dict[str, Any]]
+    name:                str                # episode title
+    overview:            str
+    id:                  int
+    production_code:     str
+    runtime:             Optional[int]
+    season_number:       int
+    still_path:          Optional[str]
+    vote_average:        float
+    vote_count:          int
+    raw:                 Dict[str, Any]
 
     #––– computed paths (init=False so you don’t pass them in) –––
-    show_folder: Path     = field(init=False, repr=False)
-    season_folder: Path   = field(init=False, repr=False)
-    strm_path: Path       = field(init=False, repr=False)
-    nfo_path: Path        = field(init=False, repr=False)
-    image_path: Path      = field(init=False, repr=False)
+    show_folder:         Path               = field(init=False, repr=False)
+    season_folder:       Path               = field(init=False, repr=False)
+    strm_path:           Path               = field(init=False, repr=False)
+    nfo_path:            Path               = field(init=False, repr=False)
+    image_path:          Path               = field(init=False, repr=False)
 
     def __post_init__(self):
+        # build a StreamInfo for this episode
+        info = StreamInfo(
+            group   = self.group,
+            title   = self.show,
+            year    = None,
+            season  = self.season_number,
+            episode = self.episode_number,
+        )
+
         # 1) base show folder …/TV Shows/<group>/<show>/
-        self.show_folder = TVPaths.show_folder(self.group, self.show)
-
-        # 2) season folder …/TV Shows/<group>/<show>/Season XX/
-        self.season_folder = TVPaths.season_folder(
-            self.group,
-            self.show,
-            self.season_number
+        self.show_folder = MediaPaths._base_folder(
+            MediaType.TV,
+            info.group,
+            info.title,
+            None
         )
 
-        # 3) paths inside that season
-        self.strm_path  = TVPaths.episode_strm(
-            self.season_folder,
-            self.show,
-            self.season_number,
-            self.episode_number
-        )
-        self.nfo_path   = TVPaths.episode_nfo(
-            self.season_folder,
-            self.show,
-            self.season_number,
-            self.episode_number
-        )
-        self.image_path = TVPaths.episode_image(
-            self.season_folder,
-            self.show,
-            self.season_number,
-            self.episode_number
-        ) 
+        # 2) season folder …/TV Shows/<group>/<show>/Season XX/
+        self.season_folder = MediaPaths.season_folder(info)
+
+        # 3) episode paths under that season
+        self.strm_path   = MediaPaths.episode_strm(info)
+        self.nfo_path    = MediaPaths.episode_nfo(info)
+        self.image_path  = MediaPaths.episode_image(info)
+
     def _recompute_paths(self) -> None:
-        # …/TV Shows/<group>/<show>/
-        self.show_folder = TVPaths.show_folder(self.group, self.show)
+        # just re‑run the same logic
+        self.__post_init__()
 
-        # …/TV Shows/<group>/<show>/Season XX/
-        self.season_folder = TVPaths.season_folder(
-            self.group,
-            self.show,
-            self.season_number
-        )
 
-        # episode paths under that season
-        self.strm_path  = TVPaths.episode_strm(
-            self.season_folder,
-            self.show,
-            self.season_number,
-            self.episode_number
-        )
-        self.nfo_path   = TVPaths.episode_nfo(
-            self.season_folder,
-            self.show,
-            self.season_number,
-            self.episode_number
-        )
-        self.image_path = TVPaths.episode_image(
-            self.season_folder,
-            self.show,
-            self.season_number,
-            self.episode_number
-        )
 
-class MoviePaths:
-    # Base root for all movie content
-    BASE_ROOT = Path(settings.output_root) / "Movies"
+class StreamInfo(NamedTuple):
+    group: str
+    title: str
+    year: Optional[int] = None
+    season: Optional[int] = None
+    episode: Optional[int] = None
 
-    @staticmethod
-    def _ensure(path: Path) -> Path:
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+class MediaPaths:
+    ROOT = Path(settings.output_root)
 
     @classmethod
-    def base_folder(cls, group: str, title: str, year: Optional[int]) -> Path:
-        """
-        e.g. …/Movies/<group>/<title> (YYYY)/
-        """
-        folder_name = f"{title} ({year})" if year is not None else title
-        folder = cls.BASE_ROOT / group / folder_name
-        return folder
+    def _ensure(cls, p: Path) -> Path:
+        p.mkdir(parents=True, exist_ok=True)
+        return p
 
     @classmethod
-    def strm_path(cls, group: str, title: str, year: Optional[int]) -> Path:
+    def _base_folder(
+        cls,
+        media_type: MediaType,
+        group: str,
+        title: str,
+        year: Optional[int] = None
+    ) -> Path:
         """
-        e.g. …/Movies/<group>/<folder_name>/<title>.strm
+        e.g. …/<media_type>/<group>/<title> (YYYY)   (for movies)
+             …/<media_type>/<group>/<show>            (for TV)
         """
-        folder = cls.base_folder(group, title, year)
-        return folder / f"{title}.strm"
+        if media_type is MediaType.MOVIE:
+            folder_name = f"{title} ({year})" if year else title
+        else:
+            folder_name = title
+
+        return cls.ROOT / media_type.value / group / folder_name
+        # return cls._ensure(folder)
 
     @classmethod
-    def nfo_path(cls, group: str, title: str, year: Optional[int]) -> Path:
-        """
-        e.g. …/Movies/<group>/<folder_name>/<title>.nfo
-        """
-        folder = cls.base_folder(group, title, year)
-        return folder / f"{title}.nfo"
+    def _file_path(
+        cls,
+        media_type: MediaType,
+        group: str,
+        title: str,
+        year: Optional[int],
+        filename: str
+    ) -> Path:
+        base = cls._base_folder(media_type, group, title, year)
+        return base / filename
+
+    # ── Movie helpers ────────────────────────────────────────────────────────────
 
     @classmethod
-    def poster_path(cls, stream: DispatcharrStream) -> Path:
-        """
-        e.g. …/Movies/<group>/<folder_name>/poster.jpg
-        """
-        folder = cls.base_folder(stream.channel_group_name, stream.name, stream.year)
-        return folder / "poster.jpg"
+    def movie_strm(cls, stream: StreamInfo) -> Path:
+        fn = f"{stream.title}.strm"
+        return cls._file_path(MediaType.MOVIE, stream.group, stream.title, stream.year, fn)
 
     @classmethod
-    def backdrop_path(cls, stream: DispatcharrStream) -> Path:
-        """
-        e.g. …/Movies/<group>/<folder_name>/fanart.jpg
-        """
-        folder = cls.base_folder(stream.channel_group_name, stream.name, stream.year)
-        return folder / "fanart.jpg"
-    
-
-class TVPaths:
-    # Base root for all TV content
-    BASE_ROOT = Path(settings.output_root) / "TV Shows"
-
-    @staticmethod
-    def _ensure(path: Path) -> Path:
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+    def movie_nfo(cls, stream: StreamInfo) -> Path:
+        fn = f"{stream.title}.nfo"
+        return cls._file_path(MediaType.MOVIE, stream.group, stream.title, stream.year, fn)
 
     @classmethod
-    def show_folder(cls, group: str, show: str) -> Path:
-        """
-        e.g. …/TV Shows/<group>/<show>/
-        """
-        folder = cls.BASE_ROOT / group / show
-        return cls._ensure(folder)
+    def movie_poster(cls, stream: StreamInfo) -> Path:
+        return cls._file_path(MediaType.MOVIE, stream.group, stream.title, stream.year, "poster.jpg")
 
     @classmethod
-    def show_nfo(cls, group: str, show: str) -> Path:
-        """
-        e.g. …/TV Shows/<group>/<show>/<show>.nfo
-        """
-        folder = cls.show_folder(group, show)
-        return folder / f"{show}.nfo"
+    def movie_backdrop(cls, stream: StreamInfo) -> Path:
+        return cls._file_path(MediaType.MOVIE, stream.group, stream.title, stream.year, "fanart.jpg")
+
+    # ── TV‑show helpers ───────────────────────────────────────────────────────────
 
     @classmethod
-    def show_image(cls, group: str, show: str, filename: str) -> Path:
-        """
-        e.g. …/TV Shows/<group>/<show>/<filename>
-        """
-        return cls.show_folder(group, show) / filename
+    def show_nfo(cls, stream: StreamInfo) -> Path:
+        fn = f"{stream.title}.nfo"
+        return cls._file_path(MediaType.TV, stream.group, stream.title, None, fn)
 
     @classmethod
-    def season_folder(cls, group: str, show: str, season: int) -> Path:
-        """
-        e.g. …/TV Shows/<group>/<show>/Season 01/
-        """
-        folder = cls.show_folder(group, show) / f"Season {season:02d}"
-        return cls._ensure(folder)
+    def show_image(cls, stream: StreamInfo, filename: str) -> Path:
+        return cls._file_path(MediaType.TV, stream.group, stream.title, None, filename)
 
-    @staticmethod
-    def season_poster(season_folder: Path, season: int) -> Path:
-        """
-        e.g. …/Season 01/Season 01.tbn
-        """
-        return season_folder / f"Season {season:02d}.tbn"
+    @classmethod
+    def season_folder(cls, stream: StreamInfo) -> Path:
+        assert stream.season is not None, "season required"
+        base = cls._base_folder(MediaType.TV, stream.group, stream.title, None)
+        return base / f"Season {stream.season:02d}"
+        # return cls._ensure(sf)
 
-    @staticmethod
-    def episode_strm(season_folder: Path, show: str, season: int, ep: int) -> Path:
-        """
-        e.g. …/Season 01/<Show> - S01E01.strm
-        """
-        base = f"{show} - S{season:02d}E{ep:02d}"
-        return season_folder / f"{base}.strm"
+    @classmethod
+    def season_poster(cls, stream: StreamInfo) -> Path:
+        sf = cls.season_folder(stream)
+        return sf / f"Season {stream.season:02d}.tbn"
 
-    @staticmethod
-    def episode_nfo(season_folder: Path, show: str, season: int, ep: int) -> Path:
-        """
-        e.g. …/Season 01/<Show> - S01E01.nfo
-        """
-        base = f"{show} - S{season:02d}E{ep:02d}"
-        return season_folder / f"{base}.nfo"
+    @classmethod
+    def episode_strm(cls, stream: StreamInfo) -> Path:
+        assert stream.season is not None and stream.episode is not None
+        sf = cls.season_folder(stream)
+        base = f"{stream.title} - S{stream.season:02d}E{stream.episode:02d}"
+        return sf / f"{base}.strm"
 
-    @staticmethod
-    def episode_image(season_folder: Path, show: str, season: int, ep: int) -> Path:
-        """
-        e.g. …/Season 01/<Show> - S01E01.jpg
-        """
-        base = f"{show} - S{season:02d}E{ep:02d}"
-        return season_folder / f"{base}.jpg"   
-    
+    @classmethod
+    def episode_nfo(cls, stream: StreamInfo) -> Path:
+        sf = cls.season_folder(stream)
+        base = f"{stream.title} - S{stream.season:02d}E{stream.episode:02d}"
+        return sf / f"{base}.nfo"
+
+    @classmethod
+    def episode_image(cls, stream: StreamInfo) -> Path:
+        sf = cls.season_folder(stream)
+        base = f"{stream.title} - S{stream.season:02d}E{stream.episode:02d}"
+        return sf / f"{base}.jpg"    
     

@@ -10,8 +10,9 @@ from ..core.config import settings
 from ..core.auth import get_auth_headers
 from ..core.utils import setup_logger
 from ..core.fs_utils import safe_mkdir, setup_logger
-from ..core.models import Stream, DispatcharrStream, Movie, TVShow
+from ..core.models import Stream, DispatcharrStream, MediaType
 from ..core.http import async_client
+
 
 logger = setup_logger(__name__)
 API_TIMEOUT = 10.0
@@ -48,7 +49,7 @@ async def _request_with_refresh(
 async def fetch_streams_by_group_name(
     group_name: str,
     headers: Dict[str, str],
-    stream_type: str,
+    stream_type: MediaType,
 ) -> List[DispatcharrStream]:
     """
     Async fetch all Stream entries for a given channel group,
@@ -91,8 +92,8 @@ async def fetch_streams_by_group_name(
                 ds = DispatcharrStream.from_dict(
                     item,
                     channel_group_name=group_name,
+                    stream_type=stream_type,
                 )
-                ds.stream_type = stream_type
                 out.append(ds)
             except Exception as e:
                 logger.error("Failed to parse DispatcharrStream for %s: %s", item, e)

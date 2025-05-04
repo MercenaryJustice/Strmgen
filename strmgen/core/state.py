@@ -7,7 +7,7 @@ from dataclasses import is_dataclass, asdict
 
 from .config import CONFIG_PATH
 from .utils import setup_logger
-from strmgen.core.models import DispatcharrStream
+from strmgen.core.models import DispatcharrStream, MediaType
 
 logger = setup_logger(__name__)
 
@@ -112,13 +112,13 @@ _init_db()
 # State-management API
 # ——————————————————————————————————————————————————————————————————————
 
-def is_skipped(stream_type: str, dispatcharr_id: int) -> bool:
+def is_skipped(stream_type: MediaType, dispatcharr_id: int) -> bool:
     """
     Return True if the given TMDb ID exists in our table with reprocess=0.
     """
     row = _conn.execute(
         "SELECT 1 FROM skipped_streams WHERE stream_type=? AND dispatcharr_id=? AND reprocess=0",
-        (stream_type, dispatcharr_id),
+        (stream_type.name, dispatcharr_id),
     ).fetchone()
     return bool(row)
 

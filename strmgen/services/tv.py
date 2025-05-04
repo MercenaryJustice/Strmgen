@@ -7,17 +7,15 @@ from typing import Dict, Optional, List
 
 from ..core.state import mark_skipped, is_skipped, SkippedStream
 from ..core.config import settings
-from ..core.models import DispatcharrStream, TVPaths
+from ..core.models import DispatcharrStream
 from .tmdb import TVShow, EpisodeMeta, lookup_show, get_season_meta, get_episode_meta, download_if_missing
 from .subtitles import download_episode_subtitles
 from ..core.utils import (
     filter_by_threshold,
-    target_folder,
     write_if,
     write_tvshow_nfo,
     write_episode_nfo
 )
-from ..core.fs_utils import clean_name
 from .streams import write_strm_file, fetch_streams
 from ..core.auth import get_auth_headers
 
@@ -32,12 +30,6 @@ _written_show_nfos: set[str] = set()
 
 async def write_assets(
     stream: DispatcharrStream,
-    show: str,
-    season: int,
-    ep: int,
-    show_folder: Path,
-    season_folder: Path,
-    strm_path: Path,
     mshow: Optional[TVShow],
     episode_meta: EpisodeMeta,
     headers: Dict[str, str]
@@ -55,10 +47,10 @@ async def write_assets(
 
     # 1) Show‐level NFO & images
     if settings.write_nfo:
-        if show not in _written_show_nfos:
+        if stream.name not in _written_show_nfos:
             # write_tvshow_nfo is sync; run in thread
             await asyncio.to_thread(write_tvshow_nfo, stream, mshow)
-            _written_show_nfos.add(show)
+            _written_show_nfos.add(stream.name)
             if settings.update_tv_series_nfo:
                 return True
 
@@ -67,39 +59,28 @@ async def write_assets(
 
     # 2) Season‐level poster
     if mshow:
-        season_meta = await get_season_meta(mshow.id, season)
-        season_meta.channel_group_name = stream.channel_group_name
-
-        asyncio.create_task(
-            download_if_missing(log_tag, stream, season_meta)
-        )
+        season_meta = await get_season_meta(stream, mshow)
+        if season_meta:
+            asyncio.create_task(
+                download_if_missing(log_tag, stream, season_meta)
+            )
 
     # 3) Write .strm file
     ok = await write_strm_file(headers, stream)
     if not ok:
-        logger.warning("[TV] ❌ Failed writing .strm for: %s", strm_path)
+        logger.warning("[TV] ❌ Failed writing .strm for: %s", stream.strm_path)
         return False
 
-    # 4) Episode NFO & still image
-    # if settings.write_nfo:
-    #     ep_nfo = Paths.episode_nfo(season_folder,
-    #                                mshow.name if mshow else show,
-    #                                season,
-    #                                ep)
-    #     await asyncio.to_thread(write_if,
-    #                             settings.write_nfo_only_if_not_exists,
-    #                             ep_nfo,
-    #                             write_episode_nfo,
-    #                             episode_meta.raw)
-    #     asyncio.create_task(
-    #         download_if_missing(log_tag, 
-    #                               f"{mshow.name if mshow else show} S{season:02d}E{ep:02d} still",
-    #                               episode_meta.still_path,
-    #                               Paths.episode_image(season_folder,
-    #                                                   mshow.name if mshow else show,
-    #                                                   season,
-    #                                                   ep))
-    #     )
+    #4) Episode NFO & still image
+    if settings.write_nfo:
+        await asyncio.to_thread(write_if,
+                                settings.write_nfo_only_if_not_exists,
+                                stream,
+                                mshow,
+                                write_episode_nfo)
+        asyncio.create_task(
+            download_if_missing(log_tag, stream, mshow)
+        )
     return True
 
 
@@ -128,7 +109,6 @@ async def download_subtitles_if_enabled(
 
 async def process_tv(
     streams: List[DispatcharrStream],
-    root: Path,
     group: str,
     headers: Dict[str, str],
     reprocess: bool = False
@@ -143,22 +123,22 @@ async def process_tv(
     for stream in streams:
         try:
             if not reprocess:
-                if await asyncio.to_thread(is_skipped, "TV", stream.id):
+                if await asyncio.to_thread(is_skipped, stream.stream_type, stream.id):
                     logger.info("[TV] ⏭️ Skipped show: %s", stream.name)
                     return
 
-            match = RE_EPISODE_TAG.match(stream.name)
-            if not match:
-                logger.info("[TV] ❌ No SxxExx pattern in: %s", stream.name)
-                return
+            # match = RE_EPISODE_TAG.match(stream.name)
+            # if not match:
+            #     logger.info("[TV] ❌ No SxxExx pattern in: %s", stream.name)
+            #     return
 
-            show = clean_name(match.group(1))
-            season = int(match.group(2))
-            ep = int(match.group(3))
-            logger.info("[TV] 📺 Episode: %s S%02dE%02d", show, season, ep)
+            show = stream.name
+            # season = int(match.group(2))
+            # ep = int(match.group(3))
+            logger.info("[TV] 📺 Episode: %s S%02dE%02d", stream.name, stream.season, stream.episode)
 
             # lookup show metadata
-            mshow = await lookup_show(show)
+            mshow = await lookup_show(stream)
             if not mshow:
                 return
             if not await asyncio.to_thread(filter_by_threshold, stream.name, mshow.raw if mshow else None):
@@ -169,19 +149,20 @@ async def process_tv(
                 return
 
             # prepare paths
-            show_folder = target_folder(root, "TV Shows", group, show)
-            season_folder = TVPaths.season_folder(root, group, show, season)
-            strm_path = TVPaths.episode_strm(season_folder, show, season, ep)
+            # show_folder = target_folder(root, "TV Shows", group, show)
+            # season_folder = TVPaths.season_folder(root, group, show, season)
+            # strm_path = TVPaths.episode_strm(season_folder, show, season, ep)
 
             # fetch episode metadata
-            episode_meta = await get_episode_meta(mshow.id, season, ep)
+            episode_meta = await get_episode_meta(stream, mshow)
             if not episode_meta:
-                logger.warning("[TV] ❌ No metadata for episode: %s S%02dE%02d", show, season, ep)
+                logger.warning("[TV] ❌ No metadata for episode: %s S%02dE%02d", show, stream.season, stream.episode)
                 return
 
             # write assets and subtitles
-            if await write_assets(stream, show, season, ep, show_folder, season_folder, strm_path, mshow, episode_meta, headers):
-                asyncio.create_task(download_subtitles_if_enabled(show, season, ep, season_folder, mshow))
+            await write_assets(stream, mshow, episode_meta, headers)
+            # if await write_assets(stream, show, mshow, episode_meta, headers):
+            #     asyncio.create_task(download_subtitles_if_enabled(show, season, ep, season_folder, mshow))
         except Exception as e:
             logger.error("[TV] ❌ Error processing stream %s: %s", stream.name, e, exc_info=True)
             continue

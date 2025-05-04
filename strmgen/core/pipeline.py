@@ -4,7 +4,7 @@ import asyncio
 import logging
 import fnmatch
 import json
-from pathlib import Path
+
 from datetime import datetime, timezone
 
 import httpx
@@ -19,6 +19,7 @@ from ..services._24_7 import process_24_7
 from ..services.movies import process_movies
 from ..services.tv import process_tv
 from .logger import setup_logger
+from ..core.models import MediaType
 
 logger = setup_logger(__name__)
 
@@ -105,27 +106,25 @@ async def run_pipeline():
         ]
 
         # Helper to process one category of groups
-        async def process_category(groups, proc_fn, label):
+        async def process_category(groups, proc_fn, media_type):
             for grp in groups:
                 if not is_running():
-                    logger.info("Pipeline was stopped before %s group %s", label, grp)
+                    logger.info("Pipeline was stopped before %s group %s", media_type, grp)
                     return
                 count = len(grp)
                 logger.info(
                     "Processing %s group: %s containing %d streams",
-                    label,
-                    grp,
-                    count
+                    media_type, grp, count
                 )                
                 # fetch streams in a thread (because your existing service is sync)
                 try:
-                    streams = await fetch_streams_by_group_name(grp, headers, label)
+                    streams = await fetch_streams_by_group_name(grp, headers, media_type)
                 except Exception:
                     logger.exception("Error fetching streams for %s", grp)
                     continue
 
                 if not is_running():
-                    logger.info("Pipeline stopped during %s group %s", label, grp)
+                    logger.info("Pipeline stopped during %s group %s", media_type, grp)
                     return
 
                 try:
@@ -137,13 +136,13 @@ async def run_pipeline():
                     continue
 
         # 3) Execute categories, but isolate failures per category
-        for groups, fn, name in [
-            (matched_24_7, process_24_7, "24/7"),
-            (matched_tv,    process_tv,    "TV Shows"),
-            (matched_movies, process_movies, "Movies"),
+        for groups, fn, media_type in [
+            (matched_24_7, process_24_7, MediaType._24_7),
+            (matched_tv,    process_tv,    MediaType.TV),
+            (matched_movies, process_movies, MediaType.MOVIE),
         ]:
             try:
-                await process_category(groups, fn, name)
+                await process_category(groups, fn, media_type)
             except Exception:
                 logger.exception("Fatal error in %s category; continuing", name)
 

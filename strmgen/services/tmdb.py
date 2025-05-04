@@ -11,7 +11,7 @@ import httpx
 from ..core.config import settings
 from ..core.utils import setup_logger
 from ..core.fs_utils import clean_name, safe_mkdir
-from ..core.models import Movie, TVShow, SeasonMeta, EpisodeMeta, TVPaths, MoviePaths, DispatcharrStream
+from ..core.models import Movie, TVShow, SeasonMeta, EpisodeMeta, DispatcharrStream
 
 logger = setup_logger(__name__)
 
@@ -264,44 +264,18 @@ async def download_if_missing(
 ) -> bool:
     # 1) pick the correct remote‐URL field
     if isinstance(tmdb, EpisodeMeta):
-        poster_url   = tmdb.still_path             # episodes use `still_path`
+        poster_url   = tmdb.still_path      # episodes use `still_path`
         backdrop_url = None
     else:
         # Movie, TVShow, SeasonMeta all have `poster_path` & `backdrop_path`
         poster_url   = getattr(tmdb, "poster_path", None)
         backdrop_url = getattr(tmdb, "backdrop_path", None)
 
-    # 2) declare your locals
-    poster_path: Path
-    fanart_path: Path
+    # 2) your DispatcharrStream already knows where these belong on disk:
+    poster_path = stream.poster_path
+    fanart_path = stream.backdrop_path
 
-    # 3) pick the correct local‐disk path
-    if isinstance(tmdb, Movie):
-        poster_path = MoviePaths.poster_path(stream)
-        fanart_path = MoviePaths.backdrop_path(stream)
-
-    elif isinstance(tmdb, TVShow):
-        base = stream.base_path
-        poster_path = TVPaths.show_image(base, "poster.jpg")
-        fanart_path = TVPaths.show_image(base, "fanart.jpg")
-
-    elif isinstance(tmdb, SeasonMeta):
-        # SeasonMeta.poster_local_path is where your .tbn lives
-        poster_path = tmdb.poster_local_path
-        # seasons generally don’t have a separate “fanart” file:
-        fanart_path = poster_path
-
-    elif isinstance(tmdb, EpisodeMeta):
-        # EpisodeMeta.image_path is where your episode .jpg lives
-        poster_path = tmdb.image_path
-        # no separate fanart for episodes
-        fanart_path = poster_path
-
-    else:
-        logger.warning(f"{log_tag} Unhandled tmdb type: {type(tmdb)}")
-        return False
-
-    # 4) download if we have a URL and it’s missing on disk
+    # 3) download if URL exists and file is missing
     if poster_url and not await asyncio.to_thread(poster_path.exists):
         logger.info(f"{log_tag} Downloading poster %s", poster_url)
         await _download_image(poster_url, poster_path)
@@ -311,6 +285,8 @@ async def download_if_missing(
         await _download_image(backdrop_url, fanart_path)
 
     return True
+
+
 
 async def tmdb_lookup_tv_show(show: str) -> Optional[Dict[str, Any]]:
     """
@@ -351,7 +327,8 @@ async def tmdb_lookup_tv_show(show: str) -> Optional[Dict[str, Any]]:
     _tmdb_show_cache[show] = best
     return best
 
-async def lookup_show(show_name: str) -> Optional[TVShow]:
+async def lookup_show(show: DispatcharrStream) -> Optional[TVShow]:
+    show_name = show.name
     cached = settings.tmdb_show_cache.get(show_name)
     if isinstance(cached, TVShow):
         return cached
@@ -381,11 +358,14 @@ async def lookup_show(show_name: str) -> Optional[TVShow]:
         origin_country=raw.get("origin_country", []),
         external_ids=raw.get("external_ids", {}),
         raw=raw,
+        channel_group_name=show.channel_group_name,
     )
     settings.tmdb_show_cache[show_name] = tv
     return tv
 
-async def get_season_meta(show_id: int, season: int) -> Optional[SeasonMeta]:
+async def get_season_meta(stream: DispatcharrStream, mshow: TVShow) -> Optional[SeasonMeta]:
+    show_id = mshow.id
+    season = stream.season
     key = (show_id, season)
     cached = settings.tmdb_season_cache.get(key)
     if isinstance(cached, SeasonMeta):
@@ -402,6 +382,8 @@ async def get_season_meta(show_id: int, season: int) -> Optional[SeasonMeta]:
             season_number=data.get("season_number", season),
             vote_average=data.get("vote_average", 0.0),
             raw=data,
+            channel_group_name=stream.channel_group_name,
+            show=stream.name,
         )
         settings.tmdb_season_cache[key] = meta
         return meta
@@ -410,7 +392,11 @@ async def get_season_meta(show_id: int, season: int) -> Optional[SeasonMeta]:
         settings.tmdb_season_cache[key] = None
         return None
 
-async def get_episode_meta(show_id: int, season: int, ep: int) -> Optional[EpisodeMeta]:
+async def get_episode_meta(stream: DispatcharrStream, mshow: TVShow) -> Optional[EpisodeMeta]:
+    show_id = mshow.id
+    season = stream.season
+    ep = stream.episode
+
     key = (show_id, season, ep)
     cached = settings.tmdb_episode_cache.get(key)
     if isinstance(cached, EpisodeMeta):
@@ -432,6 +418,8 @@ async def get_episode_meta(show_id: int, season: int, ep: int) -> Optional[Episo
             vote_average=data.get("vote_average", 0.0),
             vote_count=data.get("vote_count", 0),
             raw=data,
+            group=stream.channel_group_name,
+            show=stream.name,
         )
         settings.tmdb_episode_cache[key] = meta
         return meta

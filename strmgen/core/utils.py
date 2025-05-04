@@ -41,7 +41,7 @@ def target_folder(root: Path, category: str, group: str, name: Optional[str]) ->
     return folder
 
 # ─── Conditional Writer ──────────────────────────────────────────────────────
-T = TypeVar("T", Movie, TVShow)
+T = TypeVar("T", Movie, TVShow, EpisodeMeta, SeasonMeta)
 
 def write_if(
     cond: bool,

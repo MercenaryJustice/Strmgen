@@ -7,7 +7,7 @@ from ..core.config import settings
 from .subtitles import download_movie_subtitles
 from .streams import write_strm_file, get_dispatcharr_stream_by_id
 from ..core.models import DispatcharrStream
-from .tmdb import get_movie, download_if_missing
+from .tmdb import fetch_movie_details, download_if_missing
 from ..core.utils import write_if, write_movie_nfo, filter_by_threshold
 from ..core.logger import setup_logger
 from ..core.state import mark_skipped, is_skipped, SkippedStream
@@ -17,9 +17,6 @@ from ..core.fs_utils import safe_mkdir
 logger = setup_logger(__name__)
 TITLE_YEAR_RE = settings.MOVIE_TITLE_YEAR_RE
 log_tag = "[MOVIE] 🖼️"
-
-
-
 
 
 async def process_movies(
@@ -47,10 +44,10 @@ async def process_movies(
             logger.info("[MOVIE] 🎬 Processing movie: %s", title)
 
             # 2) Fetch movie metadata (offload sync call)
-            movie = await get_movie(title, year)
+            movie = await fetch_movie_details(title=title, year=year)
             if not movie:
                 logger.info("[MOVIE] 🚫 '%s' not found in TMDb", title)
-                return
+                continue
 
             if not stream.year and movie.release_date:
                 # Update stream with TMDb year if not set
@@ -62,17 +59,17 @@ async def process_movies(
             if not ok:
                 await asyncio.to_thread(mark_skipped, "MOVIE", group, movie, stream)
                 logger.info("[MOVIE] 🚫 Failed threshold filters: %s", title)
-                return
+                continue
 
             if not stream.strm_path.parent.exists():
                 safe_mkdir(stream.strm_path.parent)
 
 
             # 5) Write .strm
-            wrote = await write_strm_file(headers, stream)
+            wrote = await write_strm_file(stream)
             if not wrote:
                 logger.warning("[MOVIE] ❌ Failed writing .strm for: %s", stream.strm_path)
-                return
+                continue
 
             # 6) Write NFO & download poster/fanart
             if settings.write_nfo:

@@ -12,9 +12,9 @@ router = APIRouter(tags=["TMDb"])
 )
 async def api_tmdb_info(stream_type: str, tmdb_id: int):
     if stream_type.lower() == "movie":
-        info = await fetch_movie_details(tmdb_id)
+        info = await fetch_movie_details(tmdb_id=tmdb_id)
     else:
-        info = await fetch_tv_details(tmdb_id)
+        info = await fetch_tv_details(tv_id=tmdb_id)
 
     if not info:
         raise HTTPException(404, f"No TMDb info for {stream_type} {tmdb_id}")

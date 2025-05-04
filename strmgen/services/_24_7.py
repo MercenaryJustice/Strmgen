@@ -9,7 +9,7 @@ from ..core.config import settings
 from .streams import write_strm_file
 from .tmdb import search_any_tmdb
 from ..core.fs_utils import clean_name
-from ..core.utils import target_folder, write_if, write_movie_nfo, filter_by_threshold
+from ..core.utils import write_if, write_movie_nfo, filter_by_threshold
 from ..core.logger import setup_logger
 from ..core.models import DispatcharrStream
 
@@ -21,10 +21,8 @@ _skipped_247: set[str] = set()
 
 async def process_24_7(
     streams: List[DispatcharrStream],
-    root: Path,
     group: str,
-    headers: Dict[str, str],
-    url: str
+    headers: Dict[str, str]
 ) -> None:
     """
     Async processing for 24/7 streams:
@@ -58,12 +56,9 @@ async def process_24_7(
             if not ok:
                 return
 
-            # 4) Determine output folder
-            fld = target_folder(root, "24-7", group, title)
-
             # 5) Write the .strm file
             try:
-                wrote = await write_strm_file(fld / f"{title}.strm", headers, stream)
+                wrote = await write_strm_file(stream)
             except Exception:
                 logger.exception("Error writing .strm for '%s'", title)
                 return
@@ -78,7 +73,7 @@ async def process_24_7(
                     await asyncio.to_thread(
                         write_if,
                         True,
-                        fld / f"{title}.nfo",
+                        stream,
                         write_movie_nfo,
                         metadata
                     )

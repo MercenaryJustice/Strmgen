@@ -38,14 +38,14 @@ async def _fetch_new_token() -> str:
     logger.info("[AUTH] Retrieved new token; expires in %ds", expires_in)
     return token
 
-async def get_auth_headers() -> Dict[str, str]:
+async def get_auth_headers(expired: bool = False) -> Dict[str, str]:
     """
     Return a fresh Bearer token header, caching it until just before expiry.
     """
     global _cached_token, _token_expires_at
     async with _token_lock:
         now = asyncio.get_event_loop().time()
-        if not _cached_token or now >= _token_expires_at:
+        if not _cached_token or now >= _token_expires_at or expired:
             try:
                 _cached_token = await _fetch_new_token()
             except Exception:

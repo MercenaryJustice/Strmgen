@@ -1,7 +1,6 @@
 python-dotenv
 pydantic
 pydantic-settings
-requests
 opensubtitlescom
 fastapi>=0.100.0
 uvicorn[standard]>=0.22.0

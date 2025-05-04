@@ -82,7 +82,8 @@ EPISODE_TEMPLATE = """<episodedetails>
   <tmdbid>{{ episode.id }}</tmdbid>
 </episodedetails>"""
 
-MOVIE_TEMPLATE = """<movie>
+MOVIE_TEMPLATE = """
+<movie>
   <title>{{ movie.title | e }}</title>
   <originaltitle>{{ movie.original_title | e }}</originaltitle>
   <sorttitle>{{ movie.title | e }}</sorttitle>
@@ -93,13 +94,14 @@ MOVIE_TEMPLATE = """<movie>
   <rating>{{ movie.vote_average }}</rating>
   <votes>{{ movie.vote_count }}</votes>
   <tmdbid>{{ movie.id }}</tmdbid>
-  <genre>{{ movie.genre_names[0] if movie.genre_names else '' }}</genre>
-  <studio>{{ movie.raw.get('production_companies', [])[0]['name'] 
-            if movie.raw.get('production_companies') else '' }}</studio>
-  <country>{{ movie.raw.get('production_countries', [])[0]['name'] 
-            if movie.raw.get('production_countries') else '' }}</country>
+  {% for genre in movie.genre_ids %}
+  <genre>{{ genre.name | e }}</genre>
+  {% endfor %}
+  <studio>{{ movie.raw.get('production_companies', [])[0]['name'] if movie.raw.get('production_companies') else '' }}</studio>
+  <country>{{ movie.raw.get('production_countries', [])[0]['name'] if movie.raw.get('production_countries') else '' }}</country>
   <status>{{ movie.raw.get('status', '') }}</status>
-</movie>"""
+</movie>
+"""
 
 # ─── Templating Functions ─────────────────────────────────────────────────────
 

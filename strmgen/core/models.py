@@ -1,4 +1,5 @@
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List, Any, NamedTuple
@@ -9,7 +10,18 @@ from pydantic import BaseModel, root_validator
 from ..core.config import settings
 from ..core.fs_utils import clean_name, fix_url_string
 
-TITLE_YEAR_RE = settings.MOVIE_TITLE_YEAR_RE
+TITLE_YEAR_RE = re.compile(
+    r"""
+    ^\s*                                 # leading whitespace   
+    (?P<title>.+?)                       # minimally grab the title  
+    [\s\.\-_]*                           # optional separators  
+    (?:\(|\[)?                           # optional opening ( or [
+    (?P<year>(?:19|20)\d{2})             # capture a 4‑digit year 1900–2099
+    (?:\)|\])?                           # optional closing ) or ]
+    \s*$                                 # trailing whitespace to end
+    """,
+    re.VERBOSE,
+)
 RE_EPISODE_TAG = settings.TV_SERIES_EPIDOSE_RE
 
 class MediaType(Enum):
@@ -141,9 +153,8 @@ class DispatcharrStream:
         if stream_type is MediaType.MOVIE:
             m = TITLE_YEAR_RE.match(raw_name)
             if m:
-                raw_title, raw_year = m.groups()
-                title = clean_name(raw_title)
-                year  = int(raw_year)
+                title = clean_name(m.group("title"))
+                year  = int(m.group("year"))
             else:
                 title = clean_name(raw_name)
                 year  = None
@@ -207,36 +218,6 @@ class DispatcharrStream:
 
 
 
-class Stream(BaseModel):
-    id: int
-    name: str
-    url: str
-    m3u_account: int
-    logo_url: Optional[str]
-    tvg_id: Optional[str]
-    local_file: Optional[str]
-    current_viewers: int
-    updated_at: datetime
-    stream_profile_id: Optional[int]
-    is_custom: bool
-    channel_group: int
-    stream_hash: str
-
-    proxy_url: Optional[str]
-
-    @root_validator(pre=True)
-    def compute_proxy_url(cls, values):
-        # grab the raw hash (or empty string)
-        sh = values.get("stream_hash") or ""
-        if sh:
-            api = settings.api_base.rstrip("/")
-            path = settings.stream_base_url.lstrip("/")
-            values["proxy_url"] = f"{api}/{path}/{sh}"
-        else:
-            # fall back to the original URL
-            values["proxy_url"] = values.get("url", "")
-        return values
-
 @dataclass
 class Movie:
     id: int
@@ -248,7 +229,7 @@ class Movie:
     release_date: str
     adult: bool
     original_language: str
-    genre_ids: List[int]
+    genre_ids: Dict[str, Any]
     popularity: float
     video: bool
     vote_average: float
@@ -268,7 +249,6 @@ class Movie:
     videos: Dict[str, Any]
     watch_providers: Dict[str, Any]
     raw: Dict[str, Any]
-    genre_names: List[str] = field(default_factory=list)
 
     @property
     def year(self) -> Optional[int]:

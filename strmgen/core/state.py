@@ -1,7 +1,6 @@
 # strmgen/state.py
 
 import sqlite3
-import json
 from typing import TypedDict, Optional, List, Any
 from dataclasses import is_dataclass, asdict
 
@@ -74,9 +73,12 @@ def _init_db() -> None:
         """),
         (2, """
             CREATE INDEX IF NOT EXISTS idx_skipped_dispatcharr
-              ON skipped_streams(dispatcharr_id)
+            ON skipped_streams(dispatcharr_id)
         """),
-        # future migrations: (3, "... DDL or data changes ..."),
+        (3, """
+            ALTER TABLE skipped_streams
+            DROP COLUMN data
+        """),
     ]
 
     # ——————————————————————————————
@@ -165,14 +167,13 @@ def mark_skipped(stream_type: str, group: str, mshow: Any, stream: DispatcharrSt
     # 5) Upsert (insert new or update existing)
     sql = """
         INSERT INTO skipped_streams
-          (tmdb_id, dispatcharr_id, stream_type, group_name, name, data, reprocess)
-        VALUES (?,      ?,              ?,           ?,          ?,    ?,       ?)
+          (tmdb_id, dispatcharr_id, stream_type, group_name, name, reprocess)
+        VALUES (?,      ?,              ?,           ?,          ?,    ?)
         ON CONFLICT(tmdb_id) DO UPDATE SET
           dispatcharr_id = excluded.dispatcharr_id,
           stream_type    = excluded.stream_type,
           group_name     = excluded.group_name,
           name           = excluded.name,
-          data           = excluded.data,
           reprocess      = excluded.reprocess
     """
     try:
@@ -184,7 +185,6 @@ def mark_skipped(stream_type: str, group: str, mshow: Any, stream: DispatcharrSt
                 stream_type,
                 group,
                 name,
-                json.dumps(data_dict),
                 0,  # always reset reprocess to “skip next runs”
             ),
         )
@@ -206,26 +206,25 @@ class SkippedStream(TypedDict):
     stream_type: str
     group: str
     name: str
-    data: dict[str, Any]
     reprocess: bool
 
 def list_skipped(stream_type: Optional[str] = None, tmdb_id: Optional[int] = None) -> List[SkippedStream]:
     """
     Return a list of all rows in skipped_streams as dicts:
-    [{ "tmdb_id": ..., "dispatcharr_id": ..., "stream_type": ..., "group": ..., "name": ..., "data": ..., "reprocess": ... }, ...]
+    [{ "tmdb_id": ..., "dispatcharr_id": ..., "stream_type": ..., "group": ..., "name": ..., "reprocess": ... }, ...]
     """
     if stream_type is None:
         rows = _conn.execute(
-            "SELECT tmdb_id, dispatcharr_id, stream_type, group_name, name, data, reprocess FROM skipped_streams"
+            "SELECT tmdb_id, dispatcharr_id, stream_type, group_name, name, reprocess FROM skipped_streams"
         ).fetchall()
     elif tmdb_id is not None:
         rows = _conn.execute(
-            "SELECT tmdb_id, dispatcharr_id, stream_type, group_name, name, data, reprocess FROM skipped_streams WHERE stream_type=? AND tmdb_id=?",
+            "SELECT tmdb_id, dispatcharr_id, stream_type, group_name, name, reprocess FROM skipped_streams WHERE stream_type=? AND tmdb_id=?",
             (stream_type, tmdb_id),
         ).fetchall()
     else:
         rows = _conn.execute(
-            "SELECT tmdb_id, dispatcharr_id, stream_type, group_name, name, data, reprocess FROM skipped_streams WHERE stream_type=?",
+            "SELECT tmdb_id, dispatcharr_id, stream_type, group_name, name, reprocess FROM skipped_streams WHERE stream_type=?",
             (stream_type,),
         ).fetchall()
     out: List[SkippedStream] = []
@@ -236,7 +235,6 @@ def list_skipped(stream_type: Optional[str] = None, tmdb_id: Optional[int] = Non
             "stream_type": r["stream_type"],
             "group":       r["group_name"],
             "name":        r["name"],
-            "data":        json.loads(r["data"]),
             "reprocess":   bool(r["reprocess"]),
         })
     return out

@@ -51,3 +51,5 @@ def setup_logger(category: str) -> LoggerAdapter:
         logger.info("Circulation task started")
     """
     return LoggerAdapter(_base_logger, {"category": category.upper()})
+
+

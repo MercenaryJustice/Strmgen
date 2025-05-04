@@ -2,15 +2,16 @@
 
 import asyncio
 from difflib import SequenceMatcher
-from typing import Optional, Dict, List, Any, Tuple
+from typing import Optional, Dict, List, Any, Tuple, TypeVar
 from pathlib import Path
 
 import aiofiles
 import httpx
 
 from ..core.config import settings
-from ..core.utils import clean_name, safe_mkdir, setup_logger
-from ..core.models import Movie, TVShow, SeasonMeta, EpisodeMeta
+from ..core.utils import setup_logger
+from ..core.fs_utils import clean_name, safe_mkdir
+from ..core.models import Movie, TVShow, SeasonMeta, EpisodeMeta, TVPaths, MoviePaths, DispatcharrStream
 
 logger = setup_logger(__name__)
 
@@ -20,9 +21,43 @@ TMDB_IMG_BASE = "https://image.tmdb.org/t/p"
 
 # Caches
 _tv_genre_map: Dict[int, str] = {}
+_movie_genre_map: Dict[int, str] = {}
 _tmdb_show_cache: Dict[str, Any] = {}
 
 
+async def init_tv_genre_map() -> None:
+    """
+    Populate the global _tv_genre_map by calling the TMDb
+    /genre/tv/list endpoint and extracting {id: name}.
+    """
+    # 1) fetch the raw payload (which looks like {"genres":[{"id":10759,"name":"Action"},{"id":16,"name":"Animation"}, …]})
+    payload: Dict[str, Any] = await _get("/genre/tv/list", {})
+
+    # 2) extract & remap into Dict[int,str]
+    genres = payload.get("genres", [])
+    for g in genres:
+        # ensure we have both an int id and a string name
+        gid  = int(g.get("id", 0))
+        name = str(g.get("name", ""))
+        _tv_genre_map[gid] = name
+
+async def init_movie_genre_map() -> None:
+    """
+    Populate the global _tv_genre_map by calling the TMDb
+    /genre/tv/list endpoint and extracting {id: name}.
+    """
+    # 1) fetch the raw payload (which looks like {"genres":[{"id":10759,"name":"Action"},{"id":16,"name":"Animation"}, …]})
+    payload: Dict[str, Any] = await _get("/genre/movie/list", {})
+
+    # 2) extract & remap into Dict[int,str]
+    genres = payload.get("genres", [])
+    for g in genres:
+        # ensure we have both an int id and a string name
+        gid  = int(g.get("id", 0))
+        name = str(g.get("name", ""))
+        _movie_genre_map[gid] = name
+
+        
 
 
 # ─── Internal HTTP helper ─────────────────────────────────────────────────────
@@ -126,6 +161,8 @@ async def get_movie(title: str, year: Optional[int]) -> Optional[Movie]:
 async def fetch_movie_details(tmdb_id: int) -> Optional[Movie]:
     try:
         detail = await _get(f"/movie/{tmdb_id}", {"append_to_response": "".join([])})
+        genres = detail.get("genre_ids", [])
+        names = [_tv_genre_map.get(g, "") for g in genres]
         return Movie(
             id=detail.get("id", 0),
             title=detail.get("title", ""),
@@ -137,6 +174,7 @@ async def fetch_movie_details(tmdb_id: int) -> Optional[Movie]:
             adult=detail.get("adult", False),
             original_language=detail.get("original_language", ""),
             genre_ids=detail.get("genre_ids", []),
+            genre_names=names,
             popularity=detail.get("popularity", 0.0),
             video=detail.get("video", False),
             vote_average=detail.get("vote_average", 0.0),
@@ -216,16 +254,62 @@ async def _download_image(path_val: str, dest: Path) -> None:
         await f.write(data)
     logger.info("[TMDB] 🖼️ Downloaded image: %s", dest)
 
+T = TypeVar("T", Movie, TVShow, SeasonMeta, EpisodeMeta)
+
+
 async def download_if_missing(
     log_tag: str,
-    label: str,
-    path_val: Optional[str],
-    dest: Path
+    stream: DispatcharrStream,
+    tmdb: T,
 ) -> bool:
-    if not path_val or await asyncio.to_thread(dest.exists):
+    # 1) pick the correct remote‐URL field
+    if isinstance(tmdb, EpisodeMeta):
+        poster_url   = tmdb.still_path             # episodes use `still_path`
+        backdrop_url = None
+    else:
+        # Movie, TVShow, SeasonMeta all have `poster_path` & `backdrop_path`
+        poster_url   = getattr(tmdb, "poster_path", None)
+        backdrop_url = getattr(tmdb, "backdrop_path", None)
+
+    # 2) declare your locals
+    poster_path: Path
+    fanart_path: Path
+
+    # 3) pick the correct local‐disk path
+    if isinstance(tmdb, Movie):
+        poster_path = MoviePaths.poster_path(stream)
+        fanart_path = MoviePaths.backdrop_path(stream)
+
+    elif isinstance(tmdb, TVShow):
+        base = stream.base_path
+        poster_path = TVPaths.show_image(base, "poster.jpg")
+        fanart_path = TVPaths.show_image(base, "fanart.jpg")
+
+    elif isinstance(tmdb, SeasonMeta):
+        # SeasonMeta.poster_local_path is where your .tbn lives
+        poster_path = tmdb.poster_local_path
+        # seasons generally don’t have a separate “fanart” file:
+        fanart_path = poster_path
+
+    elif isinstance(tmdb, EpisodeMeta):
+        # EpisodeMeta.image_path is where your episode .jpg lives
+        poster_path = tmdb.image_path
+        # no separate fanart for episodes
+        fanart_path = poster_path
+
+    else:
+        logger.warning(f"{log_tag} Unhandled tmdb type: {type(tmdb)}")
         return False
-    logger.info(f"{log_tag} Downloading %s: %s", label, dest)
-    await _download_image(path_val, dest)
+
+    # 4) download if we have a URL and it’s missing on disk
+    if poster_url and not await asyncio.to_thread(poster_path.exists):
+        logger.info(f"{log_tag} Downloading poster %s", poster_url)
+        await _download_image(poster_url, poster_path)
+
+    if backdrop_url and not await asyncio.to_thread(fanart_path.exists):
+        logger.info(f"{log_tag} Downloading backdrop %s", backdrop_url)
+        await _download_image(backdrop_url, fanart_path)
+
     return True
 
 async def tmdb_lookup_tv_show(show: str) -> Optional[Dict[str, Any]]:
@@ -276,12 +360,6 @@ async def lookup_show(show_name: str) -> Optional[TVShow]:
     raw = await tmdb_lookup_tv_show(show_name)
     if not raw:
         return None
-    # populate genres if not loaded
-    global _tv_genre_map
-    if not _tv_genre_map:
-        genre_data = await _get("/genre/tv/list", {})
-        for g in genre_data.get("genres", []):
-            _tv_genre_map[g["id"]] = g["name"]
     genres = raw.get("genre_ids", [])
     names = [_tv_genre_map.get(g, "") for g in genres]
     tv = TVShow(

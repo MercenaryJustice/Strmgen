@@ -184,7 +184,6 @@ async def get_dispatcharr_stream_by_id(
         return None
 
 async def write_strm_file(
-    headers: Dict[str, str],
     stream: DispatcharrStream,
     timeout: float = API_TIMEOUT
 ) -> bool:

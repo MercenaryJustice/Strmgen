@@ -69,7 +69,7 @@ async def process_movies(
 
 
             # 5) Write .strm
-            wrote = await write_strm_file(headers, stream)
+            wrote = await write_strm_file(stream)
             if not wrote:
                 logger.warning("[MOVIE] ❌ Failed writing .strm for: %s", stream.strm_path)
                 continue

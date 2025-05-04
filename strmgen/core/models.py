@@ -1,4 +1,5 @@
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List, Any, NamedTuple
@@ -9,7 +10,18 @@ from pydantic import BaseModel, root_validator
 from ..core.config import settings
 from ..core.fs_utils import clean_name, fix_url_string
 
-TITLE_YEAR_RE = settings.MOVIE_TITLE_YEAR_RE
+TITLE_YEAR_RE = re.compile(
+    r"""
+    ^\s*                                 # leading whitespace   
+    (?P<title>.+?)                       # minimally grab the title  
+    [\s\.\-_]*                           # optional separators  
+    (?:\(|\[)?                           # optional opening ( or [
+    (?P<year>(?:19|20)\d{2})             # capture a 4‑digit year 1900–2099
+    (?:\)|\])?                           # optional closing ) or ]
+    \s*$                                 # trailing whitespace to end
+    """,
+    re.VERBOSE,
+)
 RE_EPISODE_TAG = settings.TV_SERIES_EPIDOSE_RE
 
 class MediaType(Enum):
@@ -141,9 +153,8 @@ class DispatcharrStream:
         if stream_type is MediaType.MOVIE:
             m = TITLE_YEAR_RE.match(raw_name)
             if m:
-                raw_title, raw_year = m.groups()
-                title = clean_name(raw_title)
-                year  = int(raw_year)
+                title = clean_name(m.group("title"))
+                year  = int(m.group("year"))
             else:
                 title = clean_name(raw_name)
                 year  = None

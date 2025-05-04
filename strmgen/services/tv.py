@@ -66,7 +66,7 @@ async def write_assets(
             )
 
     # 3) Write .strm file
-    ok = await write_strm_file(headers, stream)
+    ok = await write_strm_file(stream)
     if not ok:
         logger.warning("[TV] ❌ Failed writing .strm for: %s", stream.strm_path)
         return False

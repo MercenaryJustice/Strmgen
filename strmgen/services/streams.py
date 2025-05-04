@@ -8,8 +8,11 @@ from urllib.parse import quote_plus
 
 from ..core.config import settings
 from ..core.auth import get_auth_headers
-from ..core.utils import safe_mkdir, setup_logger
-from ..core.models import Stream, DispatcharrStream
+from ..core.utils import setup_logger
+from ..core.fs_utils import safe_mkdir
+from ..core.models import Stream, DispatcharrStream, MediaType
+from ..core.http import async_client
+
 
 logger = setup_logger(__name__)
 API_TIMEOUT = 10.0
@@ -45,13 +48,15 @@ async def _request_with_refresh(
 
 async def fetch_streams_by_group_name(
     group_name: str,
-    headers: Dict[str, str]
-) -> List[Stream]:
+    headers: Dict[str, str],
+    stream_type: MediaType,
+    updated_only: bool = False,
+) -> List[DispatcharrStream]:
     """
     Async fetch all Stream entries for a given channel group,
-    with automatic token refresh, and return as Pydantic models.
+    with automatic token refresh, and return as DispatcharrStream dataclasses.
     """
-    out: List[Stream] = []
+    out: List[DispatcharrStream] = []
     page = 1
     enc = quote_plus(group_name)
 
@@ -60,22 +65,48 @@ async def fetch_streams_by_group_name(
             f"{settings.api_base}/api/channels/streams/"
             f"?page={page}&page_size=250&ordering=name&channel_group={enc}"
         )
-        r = await _request_with_refresh("GET", url, headers, timeout=API_TIMEOUT)
-        if not r.is_success:
+        resp = await async_client.get(url, headers=headers, timeout=API_TIMEOUT)
+
+        # handle expired token
+        if resp.status_code == 401:
+            body = {}
+            try:
+                body = resp.json()
+            except Exception:
+                pass
+            if body.get("code") == "token_not_valid":
+                logger.info("[AUTH] 🔄 Token expired, refreshing & retrying")
+                headers = await get_auth_headers()
+                resp = await async_client.get(url, headers=headers, timeout=API_TIMEOUT)
+
+        if not resp.is_success:
             logger.error(
                 "[STRM] ❌ Error fetching streams for group '%s': %d %s",
-                group_name, r.status_code, r.text
+                group_name, resp.status_code, await resp.aread()
             )
             break
 
-        data = r.json()
-        results = data.get("results", [])
-
-        for item in results:
+        data = resp.json()
+        for item in data.get("results", []):
             try:
-                out.append(Stream(**item))
+                # convert raw dict → DispatcharrStream, injecting the group name
+                ds = DispatcharrStream.from_dict(
+                    item,
+                    channel_group_name=group_name,
+                    stream_type=stream_type,
+                )
+                if not ds:
+                    continue
+
+                if updated_only:
+                    # if stream_updated flag is unset (None) ➞ include
+                    # otherwise include only if it was updated within your timeframe
+                    if ds.stream_updated is None or ds.stream_updated:
+                        out.append(ds)
+                else:
+                    out.append(ds)
             except Exception as e:
-                logger.error("Failed to parse Stream for %s: %s", item, e)
+                logger.error("Failed to parse DispatcharrStream for %s: %s", item, e)
 
         if not data.get("next"):
             break
@@ -85,9 +116,8 @@ async def fetch_streams_by_group_name(
 
 
 async def is_stream_alive(
-    stream_id: int,
-    headers: Dict[str, str],
-    timeout: float = 5.0
+    stream_url: str,
+    timeout: float = 5.0,
 ) -> bool:
     """
     Check reachability of the stream URL; skip if configured to always trust.
@@ -95,14 +125,7 @@ async def is_stream_alive(
     if settings.skip_stream_check:
         return True
 
-    url = f"{settings.api_base}/api/channels/streams/{stream_id}/"
     try:
-        r = await _request_with_refresh("GET", url, headers, timeout=timeout)
-        r.raise_for_status()
-        stream_url = r.json().get("url")
-        if not stream_url:
-            return False
-
         async with httpx.AsyncClient(timeout=timeout) as client:
             head = await client.head(stream_url)
         return head.is_success
@@ -161,7 +184,6 @@ async def get_dispatcharr_stream_by_id(
         return None
 
 async def write_strm_file(
-    path: Path,
     headers: Dict[str, str],
     stream: DispatcharrStream,
     timeout: float = API_TIMEOUT
@@ -173,38 +195,44 @@ async def write_strm_file(
     - Write or update the .strm file atomically
     """
     # Skip if update_stream_link disabled and file exists
-    if not settings.update_stream_link and await asyncio.to_thread(path.exists):
+    if not settings.update_stream_link and await asyncio.to_thread(stream.strm_path.exists):
         return True
 
-    info = await get_stream_by_id(stream.id, headers, timeout)
-    if not info:
-        logger.warning("[STRM] ⚠️ Stream #%d metadata unavailable, skipping", stream.id)
-        return False
-
-    if not stream.url:
+    if not stream.url or not stream.proxy_url:
         logger.warning("[STRM] ⚠️ Stream #%d has no URL, skipping", stream.id)
         return False
 
-    if not await is_stream_alive(stream.id, headers, timeout):
+    if not await is_stream_alive(stream.url, timeout):
         logger.warning("[STRM] ⚠️ Stream #%d unreachable, skipping", stream.id)
         return False
 
     # Ensure directory exists
-    await asyncio.to_thread(safe_mkdir, path.parent)
+    await asyncio.to_thread(safe_mkdir, stream.strm_path.parent)
 
-    # Check existing file content
-    if await asyncio.to_thread(path.exists):
-        existing = await asyncio.to_thread(path.read_text, encoding="utf-8")
-        if existing.strip() == stream.url.strip():
-            logger.info("[STRM] ⚠️ .strm up-to-date: %s", path)
-            return True
-        else:
-            logger.info("[STRM] 🔄 Updating .strm (URL changed): %s", path)
+    if await is_strm_up_to_date(stream):
+        logger.info("[STRM] ⚠️ .strm up-to-date: %s", stream.strm_path)
+        return True
 
     # Write new .strm
-    await asyncio.to_thread(path.write_text, stream.url, "utf-8")
-    logger.info("[STRM] ✅ Wrote .strm: %s", path)
+    await asyncio.to_thread(stream.strm_path.write_text, stream.proxy_url.strip(), "utf-8")
+    logger.info("[STRM] ✅ Wrote .strm: %s", stream.strm_path)
     return True
+
+
+async def is_strm_up_to_date(stream: DispatcharrStream, encoding: str = "utf-8") -> bool:
+    """
+    Returns True if the .strm file exists and its contents exactly
+    match stream.proxy_url (ignoring leading/trailing whitespace).
+    """
+    path: Path = stream.strm_path
+
+    # shortcut: if file doesn’t exist, it can’t be up-to-date
+    if not await asyncio.to_thread(path.exists):
+        return False
+
+    # read & compare
+    existing = await asyncio.to_thread(path.read_text, encoding)
+    return existing.strip() == stream.proxy_url.strip()
 
 
 async def fetch_groups() -> List[str]:

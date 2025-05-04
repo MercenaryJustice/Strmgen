@@ -2,15 +2,16 @@
 
 import asyncio
 from difflib import SequenceMatcher
-from typing import Optional, Dict, List, Any, Tuple
+from typing import Optional, Dict, List, Any, Tuple, TypeVar
 from pathlib import Path
 
 import aiofiles
 import httpx
 
 from ..core.config import settings
-from ..core.utils import clean_name, safe_mkdir, setup_logger
-from ..core.models import Movie, TVShow, SeasonMeta, EpisodeMeta
+from ..core.utils import setup_logger
+from ..core.fs_utils import clean_name, safe_mkdir
+from ..core.models import Movie, TVShow, SeasonMeta, EpisodeMeta, DispatcharrStream
 
 logger = setup_logger(__name__)
 
@@ -20,9 +21,43 @@ TMDB_IMG_BASE = "https://image.tmdb.org/t/p"
 
 # Caches
 _tv_genre_map: Dict[int, str] = {}
+_movie_genre_map: Dict[int, str] = {}
 _tmdb_show_cache: Dict[str, Any] = {}
 
 
+async def init_tv_genre_map() -> None:
+    """
+    Populate the global _tv_genre_map by calling the TMDb
+    /genre/tv/list endpoint and extracting {id: name}.
+    """
+    # 1) fetch the raw payload (which looks like {"genres":[{"id":10759,"name":"Action"},{"id":16,"name":"Animation"}, …]})
+    payload: Dict[str, Any] = await _get("/genre/tv/list", {})
+
+    # 2) extract & remap into Dict[int,str]
+    genres = payload.get("genres", [])
+    for g in genres:
+        # ensure we have both an int id and a string name
+        gid  = int(g.get("id", 0))
+        name = str(g.get("name", ""))
+        _tv_genre_map[gid] = name
+
+async def init_movie_genre_map() -> None:
+    """
+    Populate the global _tv_genre_map by calling the TMDb
+    /genre/tv/list endpoint and extracting {id: name}.
+    """
+    # 1) fetch the raw payload (which looks like {"genres":[{"id":10759,"name":"Action"},{"id":16,"name":"Animation"}, …]})
+    payload: Dict[str, Any] = await _get("/genre/movie/list", {})
+
+    # 2) extract & remap into Dict[int,str]
+    genres = payload.get("genres", [])
+    for g in genres:
+        # ensure we have both an int id and a string name
+        gid  = int(g.get("id", 0))
+        name = str(g.get("name", ""))
+        _movie_genre_map[gid] = name
+
+        
 
 
 # ─── Internal HTTP helper ─────────────────────────────────────────────────────
@@ -126,6 +161,8 @@ async def get_movie(title: str, year: Optional[int]) -> Optional[Movie]:
 async def fetch_movie_details(tmdb_id: int) -> Optional[Movie]:
     try:
         detail = await _get(f"/movie/{tmdb_id}", {"append_to_response": "".join([])})
+        genres = detail.get("genre_ids", [])
+        names = [_tv_genre_map.get(g, "") for g in genres]
         return Movie(
             id=detail.get("id", 0),
             title=detail.get("title", ""),
@@ -137,6 +174,7 @@ async def fetch_movie_details(tmdb_id: int) -> Optional[Movie]:
             adult=detail.get("adult", False),
             original_language=detail.get("original_language", ""),
             genre_ids=detail.get("genre_ids", []),
+            genre_names=names,
             popularity=detail.get("popularity", 0.0),
             video=detail.get("video", False),
             vote_average=detail.get("vote_average", 0.0),
@@ -216,29 +254,81 @@ async def _download_image(path_val: str, dest: Path) -> None:
         await f.write(data)
     logger.info("[TMDB] 🖼️ Downloaded image: %s", dest)
 
+T = TypeVar("T", Movie, TVShow, SeasonMeta, EpisodeMeta)
+
+
 async def download_if_missing(
     log_tag: str,
-    label: str,
-    path_val: Optional[str],
-    dest: Path
+    stream: DispatcharrStream,
+    tmdb: T,
 ) -> bool:
-    if not path_val or await asyncio.to_thread(dest.exists):
-        return False
-    logger.info(f"{log_tag} Downloading %s: %s", label, dest)
-    await _download_image(path_val, dest)
+    # 1) pick the correct remote‐URL field
+    if isinstance(tmdb, EpisodeMeta):
+        poster_url   = tmdb.still_path      # episodes use `still_path`
+        backdrop_url = None
+    else:
+        # Movie, TVShow, SeasonMeta all have `poster_path` & `backdrop_path`
+        poster_url   = getattr(tmdb, "poster_path", None)
+        backdrop_url = getattr(tmdb, "backdrop_path", None)
+
+    # 2) your DispatcharrStream already knows where these belong on disk:
+    poster_path = stream.poster_path
+    fanart_path = stream.backdrop_path
+
+    # 3) download if URL exists and file is missing
+    if poster_url and not await asyncio.to_thread(poster_path.exists):
+        logger.info(f"{log_tag} Downloading poster %s", poster_url)
+        await _download_image(poster_url, poster_path)
+
+    if backdrop_url and not await asyncio.to_thread(fanart_path.exists):
+        logger.info(f"{log_tag} Downloading backdrop %s", backdrop_url)
+        await _download_image(backdrop_url, fanart_path)
+
     return True
 
+
+
 async def tmdb_lookup_tv_show(show: str) -> Optional[Dict[str, Any]]:
+    """
+    Look up a TV show in TMDb, returning the best-matching result.
+    Handles both:
+      - search_any_tmdb returning a dict with "results": [...]
+      - search_any_tmdb returning a single dict (one result)
+    """
+    # return cached if present
     if show in _tmdb_show_cache:
         return _tmdb_show_cache[show]
+
     data = await search_any_tmdb(show)
-    results = data.get("results", []) if data else []
-    candidates = [r for r in results if r.get("media_type") == "tv"] or results
-    best = max(candidates, key=lambda i: SequenceMatcher(None, show.lower(), (i.get("name") or i.get("title", "")).lower()).ratio()) if candidates else None
+    # normalize into a list of candidates
+    if isinstance(data, dict) and "results" in data:
+        candidates = data["results"] or []
+    elif isinstance(data, list):
+        candidates = data
+    elif isinstance(data, dict):
+        # single-object response
+        candidates = [data]
+    else:
+        candidates = []
+
+    # prefer TV entries
+    tvs = [r for r in candidates if r.get("media_type") == "tv"]
+    candidates = tvs or candidates
+
+    if not candidates:
+        _tmdb_show_cache[show] = None
+        return None
+
+    def similarity(item: Dict[str, Any]) -> float:
+        title = (item.get("name") or item.get("title") or "").lower()
+        return SequenceMatcher(None, show.lower(), title).ratio()
+
+    best = max(candidates, key=similarity)
     _tmdb_show_cache[show] = best
     return best
 
-async def lookup_show(show_name: str) -> Optional[TVShow]:
+async def lookup_show(show: DispatcharrStream) -> Optional[TVShow]:
+    show_name = show.name
     cached = settings.tmdb_show_cache.get(show_name)
     if isinstance(cached, TVShow):
         return cached
@@ -247,12 +337,6 @@ async def lookup_show(show_name: str) -> Optional[TVShow]:
     raw = await tmdb_lookup_tv_show(show_name)
     if not raw:
         return None
-    # populate genres if not loaded
-    global _tv_genre_map
-    if not _tv_genre_map:
-        genre_data = await _get("/genre/tv/list", {})
-        for g in genre_data.get("genres", []):
-            _tv_genre_map[g["id"]] = g["name"]
     genres = raw.get("genre_ids", [])
     names = [_tv_genre_map.get(g, "") for g in genres]
     tv = TVShow(
@@ -274,11 +358,14 @@ async def lookup_show(show_name: str) -> Optional[TVShow]:
         origin_country=raw.get("origin_country", []),
         external_ids=raw.get("external_ids", {}),
         raw=raw,
+        channel_group_name=show.channel_group_name,
     )
     settings.tmdb_show_cache[show_name] = tv
     return tv
 
-async def get_season_meta(show_id: int, season: int) -> Optional[SeasonMeta]:
+async def get_season_meta(stream: DispatcharrStream, mshow: TVShow) -> Optional[SeasonMeta]:
+    show_id = mshow.id
+    season = stream.season
     key = (show_id, season)
     cached = settings.tmdb_season_cache.get(key)
     if isinstance(cached, SeasonMeta):
@@ -295,6 +382,8 @@ async def get_season_meta(show_id: int, season: int) -> Optional[SeasonMeta]:
             season_number=data.get("season_number", season),
             vote_average=data.get("vote_average", 0.0),
             raw=data,
+            channel_group_name=stream.channel_group_name,
+            show=stream.name,
         )
         settings.tmdb_season_cache[key] = meta
         return meta
@@ -303,7 +392,11 @@ async def get_season_meta(show_id: int, season: int) -> Optional[SeasonMeta]:
         settings.tmdb_season_cache[key] = None
         return None
 
-async def get_episode_meta(show_id: int, season: int, ep: int) -> Optional[EpisodeMeta]:
+async def get_episode_meta(stream: DispatcharrStream, mshow: TVShow) -> Optional[EpisodeMeta]:
+    show_id = mshow.id
+    season = stream.season
+    ep = stream.episode
+
     key = (show_id, season, ep)
     cached = settings.tmdb_episode_cache.get(key)
     if isinstance(cached, EpisodeMeta):
@@ -325,6 +418,8 @@ async def get_episode_meta(show_id: int, season: int, ep: int) -> Optional[Episo
             vote_average=data.get("vote_average", 0.0),
             vote_count=data.get("vote_count", 0),
             raw=data,
+            group=stream.channel_group_name,
+            show=stream.name,
         )
         settings.tmdb_episode_cache[key] = meta
         return meta

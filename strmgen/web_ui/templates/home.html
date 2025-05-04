@@ -9,6 +9,7 @@
     <button id="run-btn" class="run-button">Run Now</button>
     <button id="stop-btn" class="stop-button" style="display:none; margin-left:10px;">Stop</button>
     <div id="run-msg" class="setting-help" style="margin-top:10px;"></div>
+    <div id="run-log" class="run-log" style="margin-top:1em; max-height:200px; overflow-y:auto; background:#f9f9f9; padding:0.5em; border:1px solid #ddd;"></div>
   </div>
 
   <!-- Scheduled Task Card -->
@@ -115,6 +116,27 @@ document.addEventListener('DOMContentLoaded', () => {
       stopBtn.disabled = false;
     }
   });
+
+  // ─── Processing Log SSE ──────────────────────────────────────────────
+  const logContainer = document.getElementById("run-log");
+  const logSource = new EventSource("/api/v1/logs/stream/logs");
+
+  logSource.addEventListener("message", e => {
+    // append each log line
+    const line = document.createElement("div");
+    line.textContent = e.data;
+    logContainer.appendChild(line);
+    // auto‑scroll to bottom
+    logContainer.scrollTop = logContainer.scrollHeight;
+  });
+
+  logSource.addEventListener("error", () => {
+    logSource.close();
+    const err = document.createElement("div");
+    err.textContent = "--- log stream closed ---";
+    err.style.opacity = "0.6";
+    logContainer.appendChild(err);
+  });  
 
   // ─── Scheduler UI Logic ───────────────────────────────────────────────────
   const hourInp   = document.getElementById('sched-hour');

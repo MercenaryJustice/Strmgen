@@ -7,7 +7,7 @@ from dataclasses import is_dataclass, asdict
 
 from .config import CONFIG_PATH
 from .utils import setup_logger
-from strmgen.core.models import DispatcharrStream
+from strmgen.core.models import DispatcharrStream, MediaType
 
 logger = setup_logger(__name__)
 
@@ -40,6 +40,9 @@ def _init_db() -> None:
     )
     _conn.commit()
 
+    # # ── CLEAR OUT ANY OLD SKIPS ────────────────────────────────────────
+    # _conn.execute("DELETE FROM skipped_streams;")
+    # _conn.commit()
 
     # ——————————————————————————————
     # 2) Ensure our version‐tracking table exists
@@ -109,13 +112,13 @@ _init_db()
 # State-management API
 # ——————————————————————————————————————————————————————————————————————
 
-def is_skipped(stream_type: str, tmdb_id: int) -> bool:
+def is_skipped(stream_type: MediaType, dispatcharr_id: int) -> bool:
     """
     Return True if the given TMDb ID exists in our table with reprocess=0.
     """
     row = _conn.execute(
-        "SELECT 1 FROM skipped_streams WHERE stream_type=? AND tmdb_id=? AND reprocess=0",
-        (stream_type, tmdb_id),
+        "SELECT 1 FROM skipped_streams WHERE stream_type=? AND dispatcharr_id=? AND reprocess=0",
+        (stream_type.name, dispatcharr_id),
     ).fetchone()
     return bool(row)
 

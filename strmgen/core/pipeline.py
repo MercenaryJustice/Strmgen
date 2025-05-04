@@ -4,7 +4,7 @@ import asyncio
 import logging
 import fnmatch
 import json
-from pathlib import Path
+
 from datetime import datetime, timezone
 
 import httpx
@@ -16,9 +16,10 @@ from .config import settings, CONFIG_PATH, _json_cfg
 from .auth import get_auth_headers
 from ..services.streams import fetch_streams_by_group_name
 from ..services._24_7 import process_24_7
-from ..services.movies import process_movie
+from ..services.movies import process_movies
 from ..services.tv import process_tv
 from .logger import setup_logger
+from ..core.models import MediaType
 
 logger = setup_logger(__name__)
 
@@ -105,41 +106,43 @@ async def run_pipeline():
         ]
 
         # Helper to process one category of groups
-        async def process_category(groups, proc_fn, label):
+        async def process_category(groups, proc_fn, media_type):
             for grp in groups:
                 if not is_running():
-                    logger.info("Pipeline was stopped before %s group %s", label, grp)
+                    logger.info("Pipeline was stopped before %s group %s", media_type, grp)
                     return
-                logger.info("Processing %s group: %s", label, grp)
                 # fetch streams in a thread (because your existing service is sync)
                 try:
-                    streams = await fetch_streams_by_group_name(grp, headers)
+                    streams = await fetch_streams_by_group_name(grp, headers, media_type, True)
+                    count = len(streams)
+                    logger.info(
+                        "Processing %s group: %s containing %d streams",
+                        media_type, grp, count
+                    )                
                 except Exception:
                     logger.exception("Error fetching streams for %s", grp)
                     continue
 
-                for stream in streams:
-                    if not is_running():
-                        logger.info("Pipeline stopped during %s group %s", label, grp)
-                        return
-                    logger.info("  %s → %s (ID %s)", label, stream.name, stream.id)
-                    # process each stream, but don’t let one bad stream kill the whole category
-                    try:
-                        await proc_fn(stream, Path(settings.output_root), grp, headers)
-                    except Exception:
-                        logger.exception(
-                            "Error processing stream %s in group %s; skipping", stream.id, grp
-                        )
-                        continue
+                if not is_running():
+                    logger.info("Pipeline stopped during %s group %s", media_type, grp)
+                    return
+
+                try:
+                    await proc_fn(streams, grp, headers)
+                except Exception:
+                    logger.exception(
+                        "Error processing streams group %s; skipping", grp
+                    )
+                    continue
 
         # 3) Execute categories, but isolate failures per category
-        for groups, fn, name in [
-            (matched_24_7, process_24_7, "24/7"),
-            (matched_tv,    process_tv,    "TV"),
-            (matched_movies, process_movie, "Movie"),
+        for groups, fn, media_type in [
+            (matched_24_7, process_24_7, MediaType._24_7),
+            (matched_tv,    process_tv,    MediaType.TV),
+            (matched_movies, process_movies, MediaType.MOVIE),
         ]:
             try:
-                await process_category(groups, fn, name)
+                await process_category(groups, fn, media_type)
             except Exception:
                 logger.exception("Fatal error in %s category; continuing", name)
 
@@ -160,11 +163,13 @@ async def run_pipeline():
 
 # ─── Scheduler setup ────────────────────────────────────────────────────────
 def schedule_on_startup():
+    # 2) start the scheduler (reuses the running asyncio loop)
     scheduler.start()
+
     if settings.enable_scheduled_task:
         trigger = CronTrigger(
             hour=settings.scheduled_hour,
-            minute=settings.scheduled_minute
+            minute=settings.scheduled_minute,
         )
         scheduler.add_job(
             start_background_run,

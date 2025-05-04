@@ -8,8 +8,10 @@ from pathlib import Path
 from opensubtitlescom import OpenSubtitles
 
 from ..core.config import settings
-from ..core.utils import clean_name, safe_mkdir, setup_logger
+from ..core.utils import setup_logger
+from ..core.fs_utils import clean_name, safe_mkdir
 from ..services.tmdb import Movie
+from ..core.models import DispatcharrStream
 
 logger = setup_logger(__name__)
 
@@ -86,7 +88,7 @@ async def _download_and_write(params: dict[str, Any], filename: str, folder: Pat
 
 async def download_movie_subtitles(
     meta: Movie,
-    folder: Path,
+    stream: DispatcharrStream,
     tmdb_id: Optional[str] = None
 ) -> None:
     """
@@ -96,7 +98,7 @@ async def download_movie_subtitles(
         return
 
     filename = f"{clean_name(meta.title)}.en.srt"
-    filepath = folder / filename
+    filepath = stream.base_path / filename
     if await asyncio.to_thread(filepath.exists):
         logger.info(f"[SUB] Skipping download, subtitle already exists: {filepath}")
         return
@@ -110,7 +112,7 @@ async def download_movie_subtitles(
             "year": meta.release_date[:4]
         })
 
-    await _download_and_write(params, filename, folder)
+    await _download_and_write(params, filename, stream.base_path)
 
 
 async def download_episode_subtitles(

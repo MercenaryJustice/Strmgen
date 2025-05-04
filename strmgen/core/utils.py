@@ -2,13 +2,13 @@
 """
 Utility functions, directory handling, Jinja2-backed NFO templating, and TMDb filtering.
 """
-import re
 from pathlib import Path
-from typing import List, Any, Optional, Dict, Callable
+from typing import List, Any, Optional, Dict, Callable, TypeVar
 
 from jinja2 import Environment, select_autoescape
 from .logger import setup_logger
 from .config import settings
+from .models import DispatcharrStream, TVShow, Movie, EpisodeMeta, SeasonMeta
 
 logger = setup_logger(__name__)
 # Initialize Jinja2 environment for XML escaping
@@ -18,16 +18,6 @@ env = Environment(
     trim_blocks=True,      # drop the first newline after a block
     lstrip_blocks=True     # strip leading spaces/tabs from the start of a line to a block
 )
-
-# ─── Filesystem Helpers ───────────────────────────────────────────────────────
-
-def safe_mkdir(path: Path) -> None:
-    """Safely create a directory tree if not exists."""
-    try:
-        path.mkdir(parents=True, exist_ok=True)
-        logger.debug("Created directory: %s", path)
-    except Exception as e:
-        logger.error("Failed to create directory %s: %s", path, e)
 
 # ─── Type Utilities ───────────────────────────────────────────────────────────
 
@@ -50,91 +40,97 @@ def target_folder(root: Path, category: str, group: str, name: Optional[str]) ->
     return folder
 
 # ─── Conditional Writer ──────────────────────────────────────────────────────
+T = TypeVar("T", Movie, TVShow, EpisodeMeta, SeasonMeta)
 
-def write_if(cond: bool, path: Path, writer_fn: Callable[..., None], *args: Any) -> None:
-    """Call writer_fn(*args, path) only if cond is True."""
+def write_if(
+    cond: bool,
+    stream: DispatcharrStream,
+    tmdb: T,
+    writer_fn: Callable[[DispatcharrStream, T], None],
+) -> None:
+    """
+    Call writer_fn(stream, tmdb) if cond is True.
+    """
     if cond:
-        writer_fn(*args, path)
+        writer_fn(stream, tmdb)
 
 # ─── NFO Templates ────────────────────────────────────────────────────────────
 TVSHOW_TEMPLATE = """<tvshow>
-  <title>{{ name | e }}</title>
-  <originaltitle>{{ original_name | e }}</originaltitle>
-  <plot>{{ overview | e }}</plot>
-  <tmdbid>{{ id }}</tmdbid>
-  <year>{{ first_air_date[:4] if first_air_date else '' }}</year>
-  <premiered>{{ first_air_date }}</premiered>
-  <rating>{{ vote_average }}</rating>
-  <votes>{{ vote_count }}</votes>
-  {% for genre in genre_names %}
+  <title>{{ show.name | e }}</title>
+  <originaltitle>{{ show.original_name | e }}</originaltitle>
+  <plot>{{ show.overview | e }}</plot>
+  <tmdbid>{{ show.id }}</tmdbid>
+  <year>{{ show.first_air_date[:4] if show.first_air_date else '' }}</year>
+  <premiered>{{ show.first_air_date }}</premiered>
+  <rating>{{ show.vote_average }}</rating>
+  <votes>{{ show.vote_count }}</votes>
+  {% for genre in show.genre_names %}
   <genre>{{ genre }}</genre>
   {% endfor %}
-  <status>{{ status }}</status>
-  <studio>{{ networks[0]['name'] if networks else '' }}</studio>
+  <status>{{ show.raw.get('status', '') }}</status>
+  <studio>{{ show.raw.get('networks', [])[0]['name'] if show.raw.get('networks') else '' }}</studio>
 </tvshow>"""
 
 EPISODE_TEMPLATE = """<episodedetails>
-  <title>{{ name | e }}</title>
-  <season>{{ season_number }}</season>
-  <episode>{{ episode_number }}</episode>
-  <plot>{{ overview | e }}</plot>
-  <aired>{{ air_date }}</aired>
-  <rating>{{ vote_average }}</rating>
-  <votes>{{ vote_count }}</votes>
-  <tmdbid>{{ id }}</tmdbid>
+  <title>{{ episode.name | e }}</title>
+  <season>{{ episode.season_number }}</season>
+  <episode>{{ episode.episode_number }}</episode>
+  <plot>{{ episode.overview | e }}</plot>
+  <aired>{{ episode.air_date }}</aired>
+  <rating>{{ episode.vote_average }}</rating>
+  <votes>{{ episode.vote_count }}</votes>
+  <tmdbid>{{ episode.id }}</tmdbid>
 </episodedetails>"""
 
 MOVIE_TEMPLATE = """<movie>
-  <title>{{ title | e }}</title>
-  <originaltitle>{{ original_title | e }}</originaltitle>
-  <sorttitle>{{ title | e }}</sorttitle>
-  <year>{{ release_date[:4] if release_date else '' }}</year>
-  <releasedate>{{ release_date }}</releasedate>
-  <plot>{{ overview | e }}</plot>
-  <runtime>{{ runtime }}</runtime>
-  <rating>{{ vote_average }}</rating>
-  <votes>{{ vote_count }}</votes>
-  <tmdbid>{{ id }}</tmdbid>
-  <genre>{{ genres[0]['name'] if genres else '' }}</genre>
-  <studio>{{ production_companies[0]['name'] if production_companies else '' }}</studio>
-  <country>{{ production_countries[0]['name'] if production_countries else '' }}</country>
-  <status>{{ status }}</status>
+  <title>{{ movie.title | e }}</title>
+  <originaltitle>{{ movie.original_title | e }}</originaltitle>
+  <sorttitle>{{ movie.title | e }}</sorttitle>
+  <year>{{ movie.release_date[:4] if movie.release_date else '' }}</year>
+  <releasedate>{{ movie.release_date }}</releasedate>
+  <plot>{{ movie.overview | e }}</plot>
+  <runtime>{{ movie.raw.get('runtime', '') }}</runtime>
+  <rating>{{ movie.vote_average }}</rating>
+  <votes>{{ movie.vote_count }}</votes>
+  <tmdbid>{{ movie.id }}</tmdbid>
+  <genre>{{ movie.genre_names[0] if movie.genre_names else '' }}</genre>
+  <studio>{{ movie.raw.get('production_companies', [])[0]['name'] 
+            if movie.raw.get('production_companies') else '' }}</studio>
+  <country>{{ movie.raw.get('production_countries', [])[0]['name'] 
+            if movie.raw.get('production_countries') else '' }}</country>
+  <status>{{ movie.raw.get('status', '') }}</status>
 </movie>"""
 
 # ─── Templating Functions ─────────────────────────────────────────────────────
 
-def render_nfo(template_str: str, context: Dict[str, Any]) -> str:
-    """Render an NFO from a Jinja2 template string and context dict."""
-    template = env.from_string(template_str)
-    return template.render(**context)
-
-
-def write_nfo(template_str: str, context: Dict[str, Any], path: Path) -> None:
-    """Render and write NFO XML to disk, with logging."""
-    # 1) Make sure the directory exists
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    xml = render_nfo(template_str, context)
-    try:
-        path.write_text(xml, encoding="utf-8")
-        logger.info("[NFO] Wrote NFO: %s", path)
-    except Exception as e:
-        logger.error("[NFO] Failed to write NFO %s: %s", path, e)
-
-
-def write_tvshow_nfo(meta: Dict[str, Any], path: Path) -> None:
+def write_tvshow_nfo(stream: DispatcharrStream, show: TVShow) -> None:
     """Write a TV-show NFO using TVSHOW_TEMPLATE."""
-    write_nfo(TVSHOW_TEMPLATE, meta, path)
+    template = env.from_string(TVSHOW_TEMPLATE)
+    xml = template.render(stream=stream, show=show)
+    path = stream.nfo_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(xml, encoding="utf-8")
+    logger.info(f"[NFO] ✅ Wrote NFO: {path}")
 
 
-def write_episode_nfo(meta: Dict[str, Any], path: Path) -> None:
+def write_episode_nfo(stream: DispatcharrStream, episode: EpisodeMeta) -> None:
     """Write an Episode NFO using EPISODE_TEMPLATE."""
-    write_nfo(EPISODE_TEMPLATE, meta, path)
+    template = env.from_string(EPISODE_TEMPLATE)
+    xml = template.render(stream=stream, show=episode)
+    path = stream.nfo_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(xml, encoding="utf-8")
+    logger.info(f"[NFO] ✅ Wrote NFO: {path}")
 
 
-def write_movie_nfo(meta: Dict[str, Any], path: Path) -> None:
+def write_movie_nfo(stream: DispatcharrStream, movie: Movie) -> None:
     """Write a Movie NFO using MOVIE_TEMPLATE."""
-    write_nfo(MOVIE_TEMPLATE, meta, path)
+    template = env.from_string(MOVIE_TEMPLATE)
+    xml = template.render(stream=stream, movie=movie)
+    path = stream.nfo_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(xml, encoding="utf-8")
+    logger.info(f"[NFO] ✅ Wrote NFO: {path}")
 
 # ─── TMDb Missing Fields Validators ───────────────────────────────────────────
 
@@ -148,20 +144,6 @@ def tmdb_missing_nfo_tv_fields(meta: Dict[str, Any]) -> List[str]:
     """Return list of missing fields required for TV episode NFO generation."""
     required = ['name', 'season_number', 'episode_number', 'overview', 'id']
     return [k for k in required if k not in meta or meta.get(k) is None]
-
-# ─── Filename Utilities ───────────────────────────────────────────────────────
-
-def clean_name(name: str) -> str:
-    """Sanitize and strip optional tokens from a name."""
-    if settings.remove_strings:
-        for token in settings.remove_strings:
-            name = name.replace(token, "")
-    return re.sub(r'[<>:"/\\|?*]', "", name)
-
-def remove_prefixes(title: str) -> str:
-    for bad in settings.remove_strings:
-        title = title.replace(bad, "").strip()
-    return title
 
 # ─── TMDb Filtering ──────────────────────────────────────────────────────────
 
@@ -205,3 +187,4 @@ def filter_by_threshold(
         return False
 
     return True
+

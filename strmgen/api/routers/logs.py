@@ -1,11 +1,12 @@
 # strmgen/api/routers/logs.py
 
 import os
+import re
 import asyncio
-from typing import Optional, List
+from typing import Optional, List, Pattern
 from pathlib import Path
 from collections import deque
-
+import logging
 import aiofiles
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -14,7 +15,19 @@ from strmgen.core.logger import LOG_PATH, setup_logger
 from strmgen.api.schemas import LogsResponse, ClearResponse
 
 router = APIRouter(tags=["logs"])
+_log_queue: "asyncio.Queue[str]" = asyncio.Queue()
 logger = setup_logger("LOGS")
+
+
+class SSELogHandler(logging.Handler):
+    """A logging handler that pushes formatted records into an asyncio queue."""
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            _log_queue.put_nowait(msg)
+        except Exception:
+            # drop on any failure
+            pass
 
 async def tail_f(path: Path):
     """
@@ -33,6 +46,7 @@ async def tail_f(path: Path):
         logger.exception("Error streaming from log file %s", path)
         raise
 
+    
 def tail_and_count(path: Path, n: Optional[int]) -> tuple[List[str], int]:
     """
     Return the last `n` lines of the log (or all lines if n is None),
@@ -127,3 +141,30 @@ async def stream_logs_sse():
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
     )
+
+@router.get("/stream/logs")
+async def stream_logs():
+    """
+    SSE stream of log lines.
+    """
+    async def event_generator():
+        while True:
+            line = await _log_queue.get()
+            yield f"data: {line}\n\n"
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+def setup_sse_logging():
+    handler = SSELogHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    # only include lines containing "[MOVIE]" or "[TVSHOW]" for instance:
+    handler.addFilter(IncludeFilter(r"/^\[STRMGEN\.CORE\.PIPELINE\]\s+Processing\s+(.+?)\s+group:\s+(.+)$/"))
+    logging.getLogger().addHandler(handler)
+
+class IncludeFilter(logging.Filter):
+    def __init__(self, pattern: str):
+        super().__init__()
+        self._regex: Pattern[str] = re.compile(pattern)
+    def filter(self, record: logging.LogRecord) -> bool:
+        # only allow records whose formatted message matches
+        msg = record.getMessage()
+        return bool(self._regex.search(msg))

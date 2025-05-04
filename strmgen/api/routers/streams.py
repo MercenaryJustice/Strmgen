@@ -40,13 +40,13 @@ async def api_stream(stream_id: int, request: Request):
         raise HTTPException(404, "Stream not found")
     return data
 
-@router.get("/is-stream-alive/{stream_id}/alive")
-async def api_stream_alive(stream_id: int, request: Request):
-    headers = dict(request.headers)
-    st = await get_stream_by_id(stream_id, headers)
-    if not st:
-        raise HTTPException(404, "Stream not found")
-    return {"alive": is_stream_alive(st["url"])}
+# @router.get("/is-stream-alive/{stream_id}/alive")
+# async def api_stream_alive(stream_id: int, request: Request):
+#     headers = dict(request.headers)
+#     st = await get_stream_by_id(stream_id, headers)
+#     if not st:
+#         raise HTTPException(404, "Stream not found")
+#     return {"alive": is_stream_alive(st["url"])}
 
 @router.get("/skipped-streams", response_model=List[SkippedStream])
 async def skipped_streams(stream_type: str | None = Query(None)):

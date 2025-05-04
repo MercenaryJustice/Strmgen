@@ -152,7 +152,7 @@ async def get_movie(title: str, year: Optional[int]) -> Optional[Movie]:
             return 0.7 * sim + 0.3 * year_score
 
         best = await asyncio.to_thread(max, candidates, key=score)
-        logger.info("[TMDB] ✅ Best match: %s (%s) score=%.2f", best.title, best.year, score(best))
+        # logger.info("[TMDB] ✅ Best match: %s (%s) score=%.2f", best.title, best.year, score(best))
         return best
     except Exception as e:
         logger.error("[TMDB] ❌ get_movie failed for '%s': %s", title, e)

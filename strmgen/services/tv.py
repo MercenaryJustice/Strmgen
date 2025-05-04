@@ -140,13 +140,13 @@ async def process_tv(
             # lookup show metadata
             mshow = await lookup_show(stream)
             if not mshow:
-                return
+                continue
             if not await asyncio.to_thread(filter_by_threshold, stream.name, mshow.raw if mshow else None):
                 await asyncio.to_thread(mark_skipped, "TV", group, mshow, stream)
                 logger.info("[TV] 🚫 Threshold filter failed for: %s", show)
-                return
+                continue
             if settings.update_tv_series_nfo and show in _written_show_nfos:
-                return
+                continue
 
             # prepare paths
             # show_folder = target_folder(root, "TV Shows", group, show)
@@ -157,7 +157,7 @@ async def process_tv(
             episode_meta = await get_episode_meta(stream, mshow)
             if not episode_meta:
                 logger.warning("[TV] ❌ No metadata for episode: %s S%02dE%02d", show, stream.season, stream.episode)
-                return
+                continue
 
             # write assets and subtitles
             await write_assets(stream, mshow, episode_meta, headers)

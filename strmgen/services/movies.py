@@ -50,7 +50,7 @@ async def process_movies(
             movie = await get_movie(title, year)
             if not movie:
                 logger.info("[MOVIE] 🚫 '%s' not found in TMDb", title)
-                return
+                continue
 
             if not stream.year and movie.release_date:
                 # Update stream with TMDb year if not set
@@ -62,7 +62,7 @@ async def process_movies(
             if not ok:
                 await asyncio.to_thread(mark_skipped, "MOVIE", group, movie, stream)
                 logger.info("[MOVIE] 🚫 Failed threshold filters: %s", title)
-                return
+                continue
 
             if not stream.strm_path.parent.exists():
                 safe_mkdir(stream.strm_path.parent)
@@ -72,7 +72,7 @@ async def process_movies(
             wrote = await write_strm_file(headers, stream)
             if not wrote:
                 logger.warning("[MOVIE] ❌ Failed writing .strm for: %s", stream.strm_path)
-                return
+                continue
 
             # 6) Write NFO & download poster/fanart
             if settings.write_nfo:

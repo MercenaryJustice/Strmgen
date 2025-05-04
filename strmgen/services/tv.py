@@ -40,7 +40,7 @@ async def write_assets(
     global _written_show_nfos
 
     if not mshow:
-        logger.warning("[TV] ❌ No metadata for show: %s", show)
+        logger.warning("[TV] ❌ No metadata for show: %s", stream.name)
         return False
 
     mshow.channel_group_name = stream.channel_group_name
@@ -76,7 +76,7 @@ async def write_assets(
         await asyncio.to_thread(write_if,
                                 settings.write_nfo_only_if_not_exists,
                                 stream,
-                                mshow,
+                                episode_meta,
                                 write_episode_nfo)
         asyncio.create_task(
             download_if_missing(log_tag, stream, mshow)
@@ -181,9 +181,7 @@ async def reprocess_tv(skipped: SkippedStream) -> bool:
             logger.error("Cannot reprocess TV %s: no streams", skipped["name"])
             return False
 
-        root = Path(settings.output_root)
-        for stream in streams:
-            await process_tv(stream, root, skipped["group"], headers, True)
+        await process_tv(streams, skipped["group"], headers, True)
 
         #await asyncio.to_thread(set_reprocess, skipped["tmdb_id"], False)
         logger.info("✅ Reprocessed TV show %s", skipped["name"])

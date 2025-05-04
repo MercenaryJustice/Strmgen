@@ -1,14 +1,13 @@
 
-import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Optional, Dict, List, Any, NamedTuple
 from enum import Enum
 from pathlib import Path
 from pydantic import BaseModel, root_validator
 
 from ..core.config import settings
-from ..core.fs_utils import clean_name
+from ..core.fs_utils import clean_name, fix_url_string
 
 TITLE_YEAR_RE = settings.MOVIE_TITLE_YEAR_RE
 RE_EPISODE_TAG = settings.TV_SERIES_EPIDOSE_RE
@@ -104,7 +103,8 @@ class DispatcharrStream:
         # fall back to raw url if no hash
         if not self.stream_hash:
             return self.url
-        return f"{settings.api_base}{settings.stream_base_url}{self.stream_hash}"
+        url = f"{settings.api_base}/{settings.stream_base_url}/{self.stream_hash}"
+        return fix_url_string(url)
 
     @property
     def was_updated_today(self) -> bool:

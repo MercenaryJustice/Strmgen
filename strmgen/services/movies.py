@@ -1,7 +1,6 @@
 # strmgen/services/movies.py
 
 import asyncio
-from pathlib import Path
 from typing import Dict
 
 from ..core.config import settings
@@ -113,9 +112,8 @@ async def reprocess_movie(skipped: SkippedStream) -> bool:
         logger.error("Error fetching stream for reprocess %s: %s", skipped["name"], e)
         return False
 
-    root = Path(settings.output_root)
     try:
-        await process_movies(stream, root, skipped["group"], headers, True)
+        await process_movies([stream], skipped["group"], headers)
         #await asyncio.to_thread(set_reprocess, skipped["tmdb_id"], False)
         logger.info("✅ Reprocessed movie: %s", skipped["name"])
         return True

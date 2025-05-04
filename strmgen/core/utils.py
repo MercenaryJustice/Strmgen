@@ -2,7 +2,6 @@
 """
 Utility functions, directory handling, Jinja2-backed NFO templating, and TMDb filtering.
 """
-import re
 from pathlib import Path
 from typing import List, Any, Optional, Dict, Callable, TypeVar
 
@@ -185,3 +184,4 @@ def filter_by_threshold(
         return False
 
     return True
+

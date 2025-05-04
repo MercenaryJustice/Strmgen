@@ -1,6 +1,6 @@
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List, Any, NamedTuple
 from enum import Enum
 from pathlib import Path
@@ -107,10 +107,26 @@ class DispatcharrStream:
         return fix_url_string(url)
 
     @property
-    def was_updated_today(self) -> bool:
+    def stream_updated(self) -> bool:
+        """
+        Returns True if:
+         - updated_at is set, AND
+         - either:
+           • settings.last_modified_days > 0 and updated_at is within that many days
+           • settings.last_modified_days <= 0 and updated_at is today (UTC)
+        """
         if not self.updated_at:
             return False
-        return self.updated_at.date() == datetime.now(timezone.utc).date()
+
+        now = datetime.now(timezone.utc)
+        days = settings.last_modified_days
+
+        if days and days > 0:
+            # Within the last `days` days
+            return (now - self.updated_at) <= timedelta(days=days)
+
+        # Fallback to “today” if no positive window set
+        return self.updated_at.date() == now.date()
 
     @classmethod
     def from_dict(

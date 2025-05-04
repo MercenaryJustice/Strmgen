@@ -9,7 +9,7 @@ from urllib.parse import quote_plus
 from ..core.config import settings
 from ..core.auth import get_auth_headers
 from ..core.utils import setup_logger
-from ..core.fs_utils import safe_mkdir, setup_logger
+from ..core.fs_utils import safe_mkdir
 from ..core.models import Stream, DispatcharrStream, MediaType
 from ..core.http import async_client
 
@@ -50,6 +50,7 @@ async def fetch_streams_by_group_name(
     group_name: str,
     headers: Dict[str, str],
     stream_type: MediaType,
+    updated_only: bool = False,
 ) -> List[DispatcharrStream]:
     """
     Async fetch all Stream entries for a given channel group,
@@ -94,7 +95,16 @@ async def fetch_streams_by_group_name(
                     channel_group_name=group_name,
                     stream_type=stream_type,
                 )
-                out.append(ds)
+                if not ds:
+                    continue
+
+                if updated_only:
+                    # if stream_updated flag is unset (None) ➞ include
+                    # otherwise include only if it was updated within your timeframe
+                    if ds.stream_updated is None or ds.stream_updated:
+                        out.append(ds)
+                else:
+                    out.append(ds)
             except Exception as e:
                 logger.error("Failed to parse DispatcharrStream for %s: %s", item, e)
 
@@ -199,19 +209,30 @@ async def write_strm_file(
     # Ensure directory exists
     await asyncio.to_thread(safe_mkdir, stream.strm_path.parent)
 
-    # Check existing file content
-    if await asyncio.to_thread(stream.strm_path.exists):
-        existing = await asyncio.to_thread(stream.strm_path.read_text, encoding="utf-8")
-        if existing.strip() == stream.proxy_url.strip():
-            logger.info("[STRM] ⚠️ .strm up-to-date: %s", stream.strm_path)
-            return True
-        else:
-            logger.info("[STRM] 🔄 Updating .strm (URL changed): %s", stream.strm_path)
+    if await is_strm_up_to_date(stream):
+        logger.info("[STRM] ⚠️ .strm up-to-date: %s", stream.strm_path)
+        return True
 
     # Write new .strm
     await asyncio.to_thread(stream.strm_path.write_text, stream.proxy_url.strip(), "utf-8")
     logger.info("[STRM] ✅ Wrote .strm: %s", stream.strm_path)
     return True
+
+
+async def is_strm_up_to_date(stream: DispatcharrStream, encoding: str = "utf-8") -> bool:
+    """
+    Returns True if the .strm file exists and its contents exactly
+    match stream.proxy_url (ignoring leading/trailing whitespace).
+    """
+    path: Path = stream.strm_path
+
+    # shortcut: if file doesn’t exist, it can’t be up-to-date
+    if not await asyncio.to_thread(path.exists):
+        return False
+
+    # read & compare
+    existing = await asyncio.to_thread(path.read_text, encoding)
+    return existing.strip() == stream.proxy_url.strip()
 
 
 async def fetch_groups() -> List[str]:

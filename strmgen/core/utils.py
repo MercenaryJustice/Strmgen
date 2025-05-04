@@ -108,6 +108,7 @@ def write_tvshow_nfo(stream: DispatcharrStream, show: TVShow) -> None:
     template = env.from_string(TVSHOW_TEMPLATE)
     xml = template.render(stream=stream, show=show)
     path = stream.nfo_path
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(xml, encoding="utf-8")
     logger.info(f"[NFO] ✅ Wrote NFO: {path}")
 
@@ -117,6 +118,7 @@ def write_episode_nfo(stream: DispatcharrStream, episode: EpisodeMeta) -> None:
     template = env.from_string(EPISODE_TEMPLATE)
     xml = template.render(stream=stream, show=episode)
     path = stream.nfo_path
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(xml, encoding="utf-8")
     logger.info(f"[NFO] ✅ Wrote NFO: {path}")
 
@@ -126,6 +128,7 @@ def write_movie_nfo(stream: DispatcharrStream, movie: Movie) -> None:
     template = env.from_string(MOVIE_TEMPLATE)
     xml = template.render(stream=stream, movie=movie)
     path = stream.nfo_path
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(xml, encoding="utf-8")
     logger.info(f"[NFO] ✅ Wrote NFO: {path}")
 

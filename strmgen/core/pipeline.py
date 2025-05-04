@@ -111,14 +111,14 @@ async def run_pipeline():
                 if not is_running():
                     logger.info("Pipeline was stopped before %s group %s", media_type, grp)
                     return
-                count = len(grp)
-                logger.info(
-                    "Processing %s group: %s containing %d streams",
-                    media_type, grp, count
-                )                
                 # fetch streams in a thread (because your existing service is sync)
                 try:
-                    streams = await fetch_streams_by_group_name(grp, headers, media_type)
+                    streams = await fetch_streams_by_group_name(grp, headers, media_type, True)
+                    count = len(streams)
+                    logger.info(
+                        "Processing %s group: %s containing %d streams",
+                        media_type, grp, count
+                    )                
                 except Exception:
                     logger.exception("Error fetching streams for %s", grp)
                     continue

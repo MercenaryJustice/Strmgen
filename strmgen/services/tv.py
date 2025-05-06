@@ -25,6 +25,7 @@ log_tag = "[TV] 🖼️"
 
 # Track which show‐NFOs we've already written this run
 _written_show_nfos: set[str] = set()
+_skipped: set[str] = set()
 
 
 
@@ -120,21 +121,20 @@ async def process_tv(
       3) Filter by threshold
       4) Write assets & subtitles
     """
+    global _skipped
+
     for stream in streams:
         try:
+            if stream.name in _skipped:
+                continue
             if not reprocess:
                 if await asyncio.to_thread(is_skipped, stream.stream_type, stream.id):
                     logger.info("[TV] ⏭️ Skipped show: %s", stream.name)
+                    _skipped.add(stream.name)
                     return
 
-            # match = RE_EPISODE_TAG.match(stream.name)
-            # if not match:
-            #     logger.info("[TV] ❌ No SxxExx pattern in: %s", stream.name)
-            #     return
-
             show = stream.name
-            # season = int(match.group(2))
-            # ep = int(match.group(3))
+
             logger.info("[TV] 📺 Episode: %s S%02dE%02d", stream.name, stream.season, stream.episode)
 
             # lookup show metadata
@@ -143,15 +143,11 @@ async def process_tv(
                 continue
             if not await asyncio.to_thread(filter_by_threshold, stream.name, mshow.raw if mshow else None):
                 await asyncio.to_thread(mark_skipped, "TV", group, mshow, stream)
+                _skipped.add(stream.name)
                 logger.info("[TV] 🚫 Threshold filter failed for: %s", show)
                 continue
             if settings.update_tv_series_nfo and show in _written_show_nfos:
                 continue
-
-            # prepare paths
-            # show_folder = target_folder(root, "TV Shows", group, show)
-            # season_folder = TVPaths.season_folder(root, group, show, season)
-            # strm_path = TVPaths.episode_strm(season_folder, show, season, ep)
 
             # fetch episode metadata
             episode_meta = await get_episode_meta(stream, mshow)
@@ -161,7 +157,7 @@ async def process_tv(
 
             # write assets and subtitles
             await write_assets(stream, mshow, episode_meta, headers)
-            # if await write_assets(stream, show, mshow, episode_meta, headers):
+            # if await write_assets(stream, mshow, episode_meta, headers):
             #     asyncio.create_task(download_subtitles_if_enabled(show, season, ep, season_folder, mshow))
         except Exception as e:
             logger.error("[TV] ❌ Error processing stream %s: %s", stream.name, e, exc_info=True)

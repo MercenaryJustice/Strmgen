@@ -9,7 +9,7 @@ from ..core.config import settings
 from ..core.auth import get_auth_headers
 from ..core.utils import setup_logger
 from ..core.fs_utils import safe_mkdir
-from ..core.models import Stream, DispatcharrStream, MediaType
+from ..core.models import DispatcharrStream, MediaType
 
 logger = setup_logger(__name__)
 API_TIMEOUT = 10.0
@@ -110,30 +110,6 @@ async def is_stream_alive(
         return False
 
 
-async def get_stream_by_id(
-    stream_id: int,
-    headers: Dict[str, str],
-    timeout: float = API_TIMEOUT
-) -> Optional[Stream]:
-    """
-    Async fetch of a single Stream by ID, with token refresh.
-    """
-    url = f"{settings.api_base}/api/channels/streams/{stream_id}/"
-    try:
-        resp = await _request_with_refresh("GET", url, headers)
-        if not resp.is_success:
-            logger.error(
-                "[STRM] ❌ Error fetching stream #%d: %d %s",
-                stream_id, resp.status_code, resp.text
-            )
-            return None
-
-        data = resp.json()
-        logger.info("[STRM] ✅ Fetched stream #%d", stream_id)
-        return Stream(**data)
-    except Exception as e:
-        logger.error("[STRM] ❌ Exception fetching stream #%d: %s", stream_id, e)
-        return None
 
 
 async def get_dispatcharr_stream_by_id(

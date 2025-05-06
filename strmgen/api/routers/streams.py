@@ -4,9 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, Body, Request
 
 from strmgen.services.streams import (
     fetch_groups,
-    fetch_streams_by_group_name,
-    get_stream_by_id,
-    is_stream_alive,
+    fetch_streams_by_group_name
 )
 from strmgen.core.logger import setup_logger
 from strmgen.core.state import (
@@ -32,21 +30,6 @@ async def api_streams(group: str, request: Request):
         logger.error("Failed fetching streams: %s", e)
         raise HTTPException(500, "Error fetching streams")
 
-@router.get("/stream-by-id/{stream_id}")
-async def api_stream(stream_id: int, request: Request):
-    headers = dict(request.headers)
-    data = await get_stream_by_id(stream_id, headers)
-    if data is None:
-        raise HTTPException(404, "Stream not found")
-    return data
-
-# @router.get("/is-stream-alive/{stream_id}/alive")
-# async def api_stream_alive(stream_id: int, request: Request):
-#     headers = dict(request.headers)
-#     st = await get_stream_by_id(stream_id, headers)
-#     if not st:
-#         raise HTTPException(404, "Stream not found")
-#     return {"alive": is_stream_alive(st["url"])}
 
 @router.get("/skipped-streams", response_model=List[SkippedStream])
 async def skipped_streams(stream_type: str | None = Query(None)):

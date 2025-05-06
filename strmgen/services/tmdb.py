@@ -2,7 +2,7 @@
 
 import asyncio
 from difflib import SequenceMatcher
-from typing import Optional, Dict, List, Any, Tuple, TypeVar
+from typing import Optional, Dict, List, Any, TypeVar
 from pathlib import Path
 
 import aiofiles
@@ -21,7 +21,6 @@ TMDB_IMG_BASE = "https://image.tmdb.org/t/p"
 
 # Caches
 _tv_genre_map: Dict[int, str] = {}
-_movie_genre_map: Dict[int, str] = {}
 _tmdb_show_cache: Dict[str, Any] = {}
 
 
@@ -41,23 +40,7 @@ async def init_tv_genre_map() -> None:
         name = str(g.get("name", ""))
         _tv_genre_map[gid] = name
 
-async def init_movie_genre_map() -> None:
-    """
-    Populate the global _tv_genre_map by calling the TMDb
-    /genre/tv/list endpoint and extracting {id: name}.
-    """
-    # 1) fetch the raw payload (which looks like {"genres":[{"id":10759,"name":"Action"},{"id":16,"name":"Animation"}, …]})
-    payload: Dict[str, Any] = await _get("/genre/movie/list", {})
-
-    # 2) extract & remap into Dict[int,str]
-    genres = payload.get("genres", [])
-    for g in genres:
-        # ensure we have both an int id and a string name
-        gid  = int(g.get("id", 0))
-        name = str(g.get("name", ""))
-        _movie_genre_map[gid] = name
-
-        
+       
 
 
 # ─── Internal HTTP helper ─────────────────────────────────────────────────────
@@ -81,88 +64,101 @@ async def search_any_tmdb(title: str) -> Optional[Dict[str, Any]]:
         logger.error("[TMDB] ❌ multi-search failed for '%s': %s", title, e)
         return None
 
-async def get_movie(title: str, year: Optional[int]) -> Optional[Movie]:
+async def fetch_movie_details(
+    title: Optional[str] = None,
+    year:  Optional[int] = None,
+    tmdb_id: Optional[int] = None
+) -> Optional[Movie]:
+    """
+    Single entry point:
+      • If tmdb_id is provided, fetch detail directly (with all append sections).
+      • Otherwise, search by title/year, pick best candidate, then fetch detail.
+    """
     if not settings.tmdb_api_key:
         return None
-    logger.info("[TMDB] 🔍 Searching movie: %s (%s)", title, year)
-    params: Dict[str, Any] = {"query": title}
-    if year:
-        params["year"] = year
+
+    # define once: which extra sections to include on detail fetch
+    append_sections = [
+        "alternative_titles","changes","credits","external_ids",
+        "images","keywords","lists","recommendations",
+        "release_dates","reviews","similar","translations",
+        "videos","watch/providers",
+    ]
+    append_to = {"append_to_response": ",".join(append_sections)}
+
     try:
-        search_data = await _get("/search/movie", params)
-        results = search_data.get("results", [])
-        if not results:
-            return None
+        # 1) Direct lookup path
+        if tmdb_id:
+            detail = await _get(f"/movie/{tmdb_id}", append_to)
 
-        append = [
-            "alternative_titles","changes","credits","external_ids",
-            "images","keywords","lists","recommendations",
-            "release_dates","reviews","similar","translations",
-            "videos","watch/providers",
-        ]
-        candidates: List[Movie] = []
-        for r in results:
-            tmdb_id = r.get("id")
-            if not tmdb_id:
-                continue
-            detail = await _get(f"/movie/{tmdb_id}", {"append_to_response": ",".join(append)})
-            movie = Movie(
-                id=detail.get("id", 0),
-                title=detail.get("title", ""),
-                original_title=detail.get("original_title", ""),
-                overview=detail.get("overview", ""),
-                poster_path=detail.get("poster_path"),
-                backdrop_path=detail.get("backdrop_path"),
-                release_date=detail.get("release_date", ""),
-                adult=detail.get("adult", False),
-                original_language=detail.get("original_language", ""),
-                genre_ids=detail.get("genre_ids", []),
-                popularity=detail.get("popularity", 0.0),
-                video=detail.get("video", False),
-                vote_average=detail.get("vote_average", 0.0),
-                vote_count=detail.get("vote_count", 0),
-                alternative_titles=detail.get("alternative_titles", {}),
-                changes=detail.get("changes", {}),
-                credits=detail.get("credits", {}),
-                external_ids=detail.get("external_ids", {}),
-                images=detail.get("images", {}),
-                keywords=detail.get("keywords", {}),
-                lists=detail.get("lists", {}),
-                recommendations=detail.get("recommendations", {}),
-                release_dates=detail.get("release_dates", {}),
-                reviews=detail.get("reviews", {}),
-                similar=detail.get("similar", {}),
-                translations=detail.get("translations", {}),
-                videos=detail.get("videos", {}),
-                watch_providers=detail.get("watch/providers", {}),
-                raw=detail,
-            )
-            candidates.append(movie)
+        # 2) Search + scoring path
+        else:
+            logger.info("[TMDB] 🔍 Searching movie: %s (%s)", title, year)
+            params: Dict[str, Any] = {"query": title or ""}
+            if year:
+                params["year"] = year
 
-        if not candidates:
-            return None
+            search_data = await _get("/search/movie", params)
+            results = search_data.get("results", [])
+            if not results:
+                return None
 
-        target = clean_name(title)
-        def score(m: Movie) -> float:
-            sim = SequenceMatcher(None, clean_name(m.title), target).ratio()
-            year_score = 0.5
-            if m.year and year:
-                diff = abs(m.year - year)
-                year_score = max(0.0, 1.0 - diff * 0.1)
-            return 0.7 * sim + 0.3 * year_score
+            # build Movie candidates with detail fetch
+            candidates: List[Movie] = []
+            for r in results:
+                mid = r.get("id")
+                if not mid:
+                    continue
+                det = await _get(f"/movie/{mid}", append_to)
+                candidates.append(Movie(
+                    id=det.get("id", 0),
+                    title=det.get("title", ""),
+                    original_title=det.get("original_title", ""),
+                    overview=det.get("overview", ""),
+                    poster_path=det.get("poster_path"),
+                    backdrop_path=det.get("backdrop_path"),
+                    release_date=det.get("release_date", ""),
+                    adult=det.get("adult", False),
+                    original_language=det.get("original_language", ""),
+                    genre_ids=det.get("genres", []),
+                    popularity=det.get("popularity", 0.0),
+                    video=det.get("video", False),
+                    vote_average=det.get("vote_average", 0.0),
+                    vote_count=det.get("vote_count", 0),
+                    alternative_titles=det.get("alternative_titles", {}),
+                    changes=det.get("changes", {}),
+                    credits=det.get("credits", {}),
+                    external_ids=det.get("external_ids", {}),
+                    images=det.get("images", {}),
+                    keywords=det.get("keywords", {}),
+                    lists=det.get("lists", {}),
+                    recommendations=det.get("recommendations", {}),
+                    release_dates=det.get("release_dates", {}),
+                    reviews=det.get("reviews", {}),
+                    similar=det.get("similar", {}),
+                    translations=det.get("translations", {}),
+                    videos=det.get("videos", {}),
+                    watch_providers=det.get("watch/providers", {}),
+                    raw=det,
+                ))
 
-        best = await asyncio.to_thread(max, candidates, key=score)
-        # logger.info("[TMDB] ✅ Best match: %s (%s) score=%.2f", best.title, best.year, score(best))
-        return best
-    except Exception as e:
-        logger.error("[TMDB] ❌ get_movie failed for '%s': %s", title, e)
-        return None
+            if not candidates:
+                return None
 
-async def fetch_movie_details(tmdb_id: int) -> Optional[Movie]:
-    try:
-        detail = await _get(f"/movie/{tmdb_id}", {"append_to_response": "".join([])})
-        genres = detail.get("genre_ids", [])
-        names = [_tv_genre_map.get(g, "") for g in genres]
+            # scoring: name similarity + year proximity
+            target = clean_name(title or "")
+            def score(m: Movie) -> float:
+                sim = SequenceMatcher(None, clean_name(m.title), target).ratio()
+                year_score = 0.5
+                if m.year and year:
+                    diff = abs(m.year - year)
+                    year_score = max(0.0, 1.0 - diff * 0.1)
+                return 0.7 * sim + 0.3 * year_score
+
+            best: Movie = await asyncio.to_thread(max, candidates, key=score)
+            detail = best.raw  # use its raw dict for final mapping
+
+        # 3) Final Movie construction from `detail`
         return Movie(
             id=detail.get("id", 0),
             title=detail.get("title", ""),
@@ -173,8 +169,7 @@ async def fetch_movie_details(tmdb_id: int) -> Optional[Movie]:
             release_date=detail.get("release_date", ""),
             adult=detail.get("adult", False),
             original_language=detail.get("original_language", ""),
-            genre_ids=detail.get("genre_ids", []),
-            genre_names=names,
+            genre_ids=detail.get("genres", []),
             popularity=detail.get("popularity", 0.0),
             video=detail.get("video", False),
             vote_average=detail.get("vote_average", 0.0),
@@ -195,8 +190,9 @@ async def fetch_movie_details(tmdb_id: int) -> Optional[Movie]:
             watch_providers=detail.get("watch/providers", {}),
             raw=detail,
         )
+
     except Exception as e:
-        logger.error("[TMDB] ❌ fetch_movie_details failed for ID %s: %s", tmdb_id, e)
+        logger.error("[TMDB] ❌ get_movie failed for title=%r, id=%r: %s", title, tmdb_id, e)
         return None
 
 # ─── TV Helpers ──────────────────────────────────────────────────────────────
@@ -209,19 +205,48 @@ def _get_best_match_tv(results: List[Dict[str, Any]], search_term: str) -> Optio
             highest, best = ratio, r
     return best
 
-async def fetch_tv_details(query: str) -> Optional[TVShow]:
+async def fetch_tv_details(
+    query: Optional[str]  = None,
+    tv_id: Optional[int]  = None
+) -> Optional[TVShow]:
+    """
+    Fetch a TV show by tmdb_id (if provided), otherwise
+    search on `query` and pick the best match.
+    """
+    if not settings.tmdb_api_key:
+        return None
+
     try:
-        data = await _get("/search/tv", {"query": query})
-        results = data.get("results", [])
-        best = _get_best_match_tv(results, query)
-        if not best or not best.get("id"):
-            return None
-        tv_id = best["id"]
-        detail = await _get(f"/tv/{tv_id}", {"append_to_response": "credits"})
-        genres = detail.get("genre_ids", [])
-        names = [ _tv_genre_map.get(gid, "") for gid in genres ]
+        # Always append credits
+        append = {"append_to_response": "credits"}
+
+        # 1) Direct lookup if tv_id given
+        if tv_id:
+            detail = await _get(f"/tv/{tv_id}", append)
+
+        # 2) Search + best-match otherwise
+        else:
+            if not query:
+                return None
+
+            logger.info("[TMDB] 🔍 Searching TV: %s", query)
+            data = await _get("/search/tv", {"query": query})
+            results: List[Dict[str, Any]] = data.get("results", [])
+            if not results:
+                return None
+
+            # pick best by whatever logic you already have
+            best = _get_best_match_tv(results, query)
+            if not best or not best.get("id"):
+                return None
+
+            tv_id = best["id"]
+            detail = await _get(f"/tv/{tv_id}", append)
+
+        # 3) Map to your TVShow model
         return TVShow(
             id=detail.get("id", 0),
+            channel_group_name="",
             name=detail.get("name", ""),
             original_name=detail.get("original_name", ""),
             overview=detail.get("overview", ""),
@@ -230,8 +255,8 @@ async def fetch_tv_details(query: str) -> Optional[TVShow]:
             media_type=detail.get("media_type", ""),
             adult=detail.get("adult", False),
             original_language=detail.get("original_language", ""),
-            genre_ids=genres,
-            genre_names=names,
+            genre_ids=detail.get("genre_ids", []),
+            genre_names=[_tv_genre_map.get(g, "") for g in detail.get("genre_ids", [])],
             popularity=detail.get("popularity", 0.0),
             first_air_date=detail.get("first_air_date", ""),
             vote_average=detail.get("vote_average", 0.0),
@@ -240,7 +265,8 @@ async def fetch_tv_details(query: str) -> Optional[TVShow]:
             external_ids=detail.get("external_ids", {}),
             raw=detail,
         )
-    except Exception:
+    except Exception as e:
+        logger.error("[TMDB] ❌ fetch_tv_details failed for query=%r, tv_id=%r: %s", query, tv_id, e)
         return None
 
 async def _download_image(path_val: str, dest: Path) -> None:

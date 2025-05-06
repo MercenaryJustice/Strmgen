@@ -218,36 +218,6 @@ class DispatcharrStream:
 
 
 
-class Stream(BaseModel):
-    id: int
-    name: str
-    url: str
-    m3u_account: int
-    logo_url: Optional[str]
-    tvg_id: Optional[str]
-    local_file: Optional[str]
-    current_viewers: int
-    updated_at: datetime
-    stream_profile_id: Optional[int]
-    is_custom: bool
-    channel_group: int
-    stream_hash: str
-
-    proxy_url: Optional[str]
-
-    @root_validator(pre=True)
-    def compute_proxy_url(cls, values):
-        # grab the raw hash (or empty string)
-        sh = values.get("stream_hash") or ""
-        if sh:
-            api = settings.api_base.rstrip("/")
-            path = settings.stream_base_url.lstrip("/")
-            values["proxy_url"] = f"{api}/{path}/{sh}"
-        else:
-            # fall back to the original URL
-            values["proxy_url"] = values.get("url", "")
-        return values
-
 @dataclass
 class Movie:
     id: int
@@ -259,7 +229,7 @@ class Movie:
     release_date: str
     adult: bool
     original_language: str
-    genre_ids: List[int]
+    genre_ids: Dict[str, Any]
     popularity: float
     video: bool
     vote_average: float
@@ -279,7 +249,6 @@ class Movie:
     videos: Dict[str, Any]
     watch_providers: Dict[str, Any]
     raw: Dict[str, Any]
-    genre_names: List[str] = field(default_factory=list)
 
     @property
     def year(self) -> Optional[int]:

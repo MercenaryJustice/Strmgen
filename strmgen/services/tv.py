@@ -2,13 +2,14 @@
 
 import asyncio
 import logging
+from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Optional, List
 
 from ..core.state import mark_skipped, is_skipped, SkippedStream
 from ..core.config import settings
-from ..core.models import DispatcharrStream
-from .tmdb import TVShow, EpisodeMeta, lookup_show, get_season_meta, get_episode_meta, download_if_missing
+from ..core.models import DispatcharrStream, SeasonMeta
+from .tmdb import TVShow, EpisodeMeta, lookup_show, get_season_meta, download_if_missing
 from .subtitles import download_episode_subtitles
 from ..core.utils import (
     filter_by_threshold,
@@ -24,65 +25,9 @@ RE_EPISODE_TAG = settings.TV_SERIES_EPIDOSE_RE
 log_tag = "[TV] 🖼️"
 
 # Track which show‐NFOs we've already written this run
-_written_show_nfos: set[str] = set()
 _skipped: set[str] = set()
 
 
-
-async def write_assets(
-    stream: DispatcharrStream,
-    mshow: Optional[TVShow],
-    episode_meta: EpisodeMeta,
-    headers: Dict[str, str]
-) -> bool:
-    """
-    Async write of .strm, NFOs, and images for a TV episode.
-    """
-    global _written_show_nfos
-
-    if not mshow:
-        logger.warning("[TV] ❌ No metadata for show: %s", stream.name)
-        return False
-
-    mshow.channel_group_name = stream.channel_group_name
-
-    # 1) Show‐level NFO & images
-    if settings.write_nfo:
-        if stream.name not in _written_show_nfos:
-            # write_tvshow_nfo is sync; run in thread
-            await asyncio.to_thread(write_tvshow_nfo, stream, mshow)
-            _written_show_nfos.add(stream.name)
-            if settings.update_tv_series_nfo:
-                return True
-
-        # download poster & backdrop
-        asyncio.create_task(download_if_missing(log_tag, stream, mshow))
-
-    # 2) Season‐level poster
-    if mshow:
-        season_meta = await get_season_meta(stream, mshow)
-        if season_meta:
-            asyncio.create_task(
-                download_if_missing(log_tag, stream, season_meta)
-            )
-
-    # 3) Write .strm file
-    ok = await write_strm_file(stream)
-    if not ok:
-        logger.warning("[TV] ❌ Failed writing .strm for: %s", stream.strm_path)
-        return False
-
-    #4) Episode NFO & still image
-    if settings.write_nfo:
-        await asyncio.to_thread(write_if,
-                                settings.write_nfo_only_if_not_exists,
-                                stream,
-                                episode_meta,
-                                write_episode_nfo)
-        asyncio.create_task(
-            download_if_missing(log_tag, stream, mshow)
-        )
-    return True
 
 
 async def download_subtitles_if_enabled(
@@ -114,56 +59,99 @@ async def process_tv(
     headers: Dict[str, str],
     reprocess: bool = False
 ) -> None:
-    """
-    Async processing for a single TV episode:
-      1) Parse SxxExx
-      2) Lookup and cache show metadata
-      3) Filter by threshold
-      4) Write assets & subtitles
-    """
-    global _skipped
+    TAG = "[TV]"
 
-    for stream in streams:
-        try:
-            if stream.name in _skipped:
-                continue
-            if not reprocess:
-                if await asyncio.to_thread(is_skipped, stream.stream_type, stream.id):
-                    logger.info("[TV] ⏭️ Skipped show: %s", stream.name)
-                    _skipped.add(stream.name)
-                    return
+    # 1) Drop any streams missing season/episode
+    streams = [s for s in streams if s.season is not None and s.episode is not None]
 
-            show = stream.name
+    # 2) Build show→season→[streams] map
+    shows: Dict[str, Dict[int, List[DispatcharrStream]]] = defaultdict(lambda: defaultdict(list))
+    for s in streams:
+        shows[s.name][s.season].append(s)
 
-            logger.info("[TV] 📺 Episode: %s S%02dE%02d", stream.name, stream.season, stream.episode)
-
-            # lookup show metadata
-            mshow = await lookup_show(stream)
-            if not mshow:
-                continue
-            if not await asyncio.to_thread(filter_by_threshold, stream.name, mshow.raw if mshow else None):
-                await asyncio.to_thread(mark_skipped, "TV", group, mshow, stream)
-                _skipped.add(stream.name)
-                logger.info("[TV] 🚫 Threshold filter failed for: %s", show)
-                continue
-            if settings.update_tv_series_nfo and show in _written_show_nfos:
-                continue
-
-            # fetch episode metadata
-            episode_meta = await get_episode_meta(stream, mshow)
-            if not episode_meta:
-                _skipped.add(stream.name)
-                logger.warning("[TV] ❌ No metadata for episode: %s S%02dE%02d", show, stream.season, stream.episode)
-                continue
-
-            # write assets and subtitles
-            await write_assets(stream, mshow, episode_meta, headers)
-            # if await write_assets(stream, mshow, episode_meta, headers):
-            #     asyncio.create_task(download_subtitles_if_enabled(show, season, ep, season_folder, mshow))
-        except Exception as e:
-            logger.error("[TV] ❌ Error processing stream %s: %s", stream.name, e, exc_info=True)
+    # 3) Iterate each show
+    for show_name, seasons in shows.items():
+        if show_name in _skipped:
             continue
-    logger.info("Completed processing TV streams for group: %s", group)
+
+        logger.info(f"{TAG} ▶️ Processing show {show_name!r}")
+
+        # 3a) Lookup & cache show metadata
+        sample_stream = next(iter(next(iter(seasons.values()))))
+        mshow: Optional[TVShow] = await lookup_show(sample_stream)
+        if not mshow:
+            _skipped.add(show_name)
+            continue
+
+        # 3b) Threshold check once per show
+        passed = await asyncio.to_thread(filter_by_threshold, show_name, mshow.raw)
+        if not passed:
+            await asyncio.to_thread(mark_skipped, "TV", group, mshow, sample_stream)
+            _skipped.add(show_name)
+            logger.info(f"{TAG} 🚫 Threshold filter failed for: {show_name}")
+            continue
+
+        # 3c) Write show‐level .nfo & schedule show images
+        if settings.write_nfo and show_name:
+            await asyncio.to_thread(write_tvshow_nfo, sample_stream, mshow)
+            asyncio.create_task(download_if_missing(TAG, sample_stream, mshow))
+            if settings.update_tv_series_nfo:
+                # if only updating series‐level NFO, skip episodes
+                continue
+
+        # 4) Iterate each season
+        for season_num, eps in seasons.items():
+            logger.info(f"{TAG} 📅 Fetch season {show_name!r} S{season_num:02d} ({len(eps)} eps)")
+
+            season_meta: Optional[SeasonMeta] = await get_season_meta(eps[0], mshow)
+            if not season_meta:
+                logger.warning(f"{TAG} ❌ No metadata for {show_name!r} S{season_num:02d}")
+                continue
+
+            # schedule season poster download
+            asyncio.create_task(download_if_missing(TAG, eps[0], season_meta))
+
+            # 5) Process each episode
+            for stream in eps:
+                try:
+                    # per‐episode skip checks
+                    if stream.name in _skipped:
+                        continue
+                    if not reprocess and await asyncio.to_thread(is_skipped, stream.stream_type, stream.id):
+                        logger.info(f"{TAG} ⏭️ Skipped episode: {stream.name}")
+                        _skipped.add(stream.name)
+                        continue
+
+                    logger.info(
+                        f"{TAG} 📺 Episode: {show_name} S{season_num:02d}E{stream.episode:02d}"
+                    )
+
+                    # grab the pre‑built EpisodeMeta
+                    ep_num = stream.episode  # type: ignore[assignment]
+                    episode_meta = season_meta.episode_map.get(ep_num)
+                    if not episode_meta:
+                        logger.warning(
+                            f"{TAG} ❌ Missing ep {ep_num:02d} in {show_name!r} S{season_num:02d}"
+                        )
+                        continue
+
+                    # — Write .strm file —
+                    episode_meta.strm_path.parent.mkdir(parents=True, exist_ok=True)
+                    episode_meta.strm_path.write_text(stream.proxy_url, encoding="utf-8")
+
+                    # — Episode .nfo & still image —
+                    if settings.write_nfo:
+                        await asyncio.to_thread(write_episode_nfo, stream, episode_meta)
+                        if episode_meta.still_path:
+                            asyncio.create_task(download_if_missing(TAG, stream, episode_meta))
+
+                except Exception as e:
+                    logger.error(f"{TAG} ❌ Error processing {stream.name}: {e}", exc_info=True)
+                    continue
+
+        logger.info(f"{TAG} ✅ Finished show {show_name!r}")
+
+    logger.info(f"{TAG} Completed processing TV streams for group: {group}")
 
 
 

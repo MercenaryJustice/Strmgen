@@ -107,7 +107,7 @@ MOVIE_TEMPLATE = """
 
 def write_tvshow_nfo(stream: DispatcharrStream, show: TVShow) -> None:
     """Write a TV-show NFO using TVSHOW_TEMPLATE, with improved logging."""
-    path = stream.nfo_path
+    path = show.show_nfo_path
     try:
         template = env.from_string(TVSHOW_TEMPLATE)
         xml = template.render(stream=stream, episode=None, show=show)
@@ -140,7 +140,7 @@ def write_tvshow_nfo(stream: DispatcharrStream, show: TVShow) -> None:
 
 def write_episode_nfo(stream: DispatcharrStream, episode: EpisodeMeta) -> None:
     """Write an Episode NFO using EPISODE_TEMPLATE, with improved logging."""
-    path = stream.nfo_path
+    path = episode.nfo_path
     try:
         # Render the template
         template = env.from_string(EPISODE_TEMPLATE)

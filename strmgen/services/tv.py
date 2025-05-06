@@ -9,15 +9,14 @@ from typing import Dict, Optional, List
 from ..core.state import mark_skipped, is_skipped, SkippedStream
 from ..core.config import settings
 from ..core.models import DispatcharrStream, SeasonMeta
-from .tmdb import TVShow, EpisodeMeta, lookup_show, get_season_meta, download_if_missing
+from .tmdb import TVShow, lookup_show, get_season_meta, download_if_missing
 from .subtitles import download_episode_subtitles
 from ..core.utils import (
     filter_by_threshold,
-    write_if,
     write_tvshow_nfo,
     write_episode_nfo
 )
-from .streams import write_strm_file, fetch_streams
+from .streams import fetch_streams
 from ..core.auth import get_auth_headers
 
 logger = logging.getLogger(__name__)

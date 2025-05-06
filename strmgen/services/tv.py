@@ -152,6 +152,7 @@ async def process_tv(
             # fetch episode metadata
             episode_meta = await get_episode_meta(stream, mshow)
             if not episode_meta:
+                _skipped.add(stream.name)
                 logger.warning("[TV] ❌ No metadata for episode: %s S%02dE%02d", show, stream.season, stream.episode)
                 continue
 

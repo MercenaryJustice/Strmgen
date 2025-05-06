@@ -294,7 +294,7 @@ class TVShow:
         # pack into a minimal StreamInfo
         info = StreamInfo(
             group   = self.channel_group_name,
-            title   = self.name,
+            title   = clean_name(self.name),
             # movies use .year, tv doesn’t need it
             year    = None,
             season  = None,
@@ -330,55 +330,6 @@ class TVShow:
         # same logic again
         self.__post_init__()
 
-@dataclass
-class SeasonMeta:
-    # — routing / grouping context —
-    channel_group_name: str                # e.g. "Action", "Premium"
-    show:               str                # cleaned‐up show title, e.g. "The Great Show"
-
-    # — TMDb season fields —
-    id:               int
-    name:             str
-    overview:         str
-    air_date:         str
-    episodes:         List[Dict[str, Any]]
-    poster_path:      Optional[str]
-    season_number:    int
-    vote_average:     float
-    raw:              Dict[str, Any]
-
-    # — computed folders & files —
-    show_folder:       Path = field(init=False, repr=False)
-    season_folder:     Path = field(init=False, repr=False)
-    poster_local_path: Path = field(init=False, repr=False)
-
-    def __post_init__(self):
-        # pack into StreamInfo
-        info = StreamInfo(
-            group   = self.channel_group_name,
-            title   = self.show,
-            year    = None,
-            season  = self.season_number,
-            episode = None,
-        )
-
-        # ensure …/TV Shows/<group>/<show>/ exists
-        self.show_folder = MediaPaths._base_folder(
-            MediaType.TV,
-            self.channel_group_name,
-            self.show,
-            None
-        )
-
-        # ensure …/TV Shows/<group>/<show>/Season XX/ exists
-        self.season_folder = MediaPaths.season_folder(info)
-
-        # local path where the season poster (Season XX.tbn) should live
-        self.poster_local_path = MediaPaths.season_poster(info)
-
-    def _recompute_paths(self) -> None:
-        # rerun same logic
-        self.__post_init__()
 
 @dataclass
 class EpisodeMeta:
@@ -439,6 +390,78 @@ class EpisodeMeta:
         # just re‑run the same logic
         self.__post_init__()
 
+
+
+@dataclass
+class SeasonMeta:
+    # — routing / grouping context —
+    channel_group_name: str
+    show:               str
+
+    # — raw TMDb season fields —
+    id:               int
+    name:             str
+    overview:         str
+    air_date:         str
+    raw_episodes:     List[Dict[str, Any]]
+    poster_path:      Optional[str]
+    season_number:    int
+    vote_average:     float
+    raw:              Dict[str, Any]
+
+    # — computed folders & files —
+    show_folder:       Path               = field(init=False, repr=False)
+    season_folder:     Path               = field(init=False, repr=False)
+    poster_local_path: Path               = field(init=False, repr=False)
+
+    # ── NEW: map ep# → EpisodeMeta ──
+    episode_map:       Dict[int, EpisodeMeta] = field(init=False, repr=False)
+
+    def __post_init__(self):
+        # build your existing folders
+        info = StreamInfo(
+            group   = self.channel_group_name,
+            title   = self.show,
+            year    = None,
+            season  = self.season_number,
+            episode = None,
+        )
+        self.show_folder       = MediaPaths._base_folder(
+            MediaType.TV,
+            self.channel_group_name,
+            self.show,
+            None
+        )
+        self.season_folder     = MediaPaths.season_folder(info)
+        self.poster_local_path = MediaPaths.season_poster(info)
+
+        # ── now build the episode_map from raw_episodes ──
+        self.episode_map = {}
+        for e in self.raw_episodes:
+            ep_num = e.get("episode_number")
+            # instantiate an EpisodeMeta for each raw dict
+            self.episode_map[ep_num] = EpisodeMeta(
+                group           = self.channel_group_name,
+                show            = self.show,
+                air_date        = e.get("air_date", ""),
+                crew            = e.get("crew", []),
+                episode_number  = ep_num,
+                guest_stars     = e.get("guest_stars", []),
+                name            = e.get("name", ""),
+                overview        = e.get("overview", ""),
+                id              = e.get("id", 0),
+                production_code = e.get("production_code", ""),
+                runtime         = e.get("runtime"),
+                season_number   = self.season_number,
+                still_path      = e.get("still_path"),
+                vote_average    = e.get("vote_average", 0.0),
+                vote_count      = e.get("vote_count", 0),
+                raw             = e,
+            )
+
+    def _recompute_paths(self) -> None:
+        # rerun same logic
+        self.__post_init__()
 
 
 class StreamInfo(NamedTuple):

@@ -367,7 +367,7 @@ async def lookup_show(show: DispatcharrStream) -> Optional[TVShow]:
     names = [_tv_genre_map.get(g, "") for g in genres]
     tv = TVShow(
         id=raw.get("id", 0),
-        name=raw.get("name", show_name),
+        name=clean_name(raw.get("name", show_name)),
         original_name=raw.get("original_name", ""),
         overview=raw.get("overview", ""),
         poster_path=raw.get("poster_path"),
@@ -389,30 +389,36 @@ async def lookup_show(show: DispatcharrStream) -> Optional[TVShow]:
     settings.tmdb_show_cache[show_name] = tv
     return tv
 
-async def get_season_meta(stream: DispatcharrStream, mshow: TVShow) -> Optional[SeasonMeta]:
+async def get_season_meta(
+    stream: DispatcharrStream,
+    mshow: TVShow
+) -> Optional[SeasonMeta]:
     show_id = mshow.id
-    season = stream.season
-    key = (show_id, season)
+    season  = stream.season
+    key     = (show_id, season)
+
     cached = settings.tmdb_season_cache.get(key)
     if isinstance(cached, SeasonMeta):
         return cached
+
     try:
         data = await _get(f"/tv/{show_id}/season/{season}", {})
         meta = SeasonMeta(
-            id=data.get("id", 0),
-            name=data.get("name", ""),
-            overview=data.get("overview", ""),
-            air_date=data.get("air_date", ""),
-            episodes=data.get("episodes", []),
-            poster_path=data.get("poster_path"),
-            season_number=data.get("season_number", season),
-            vote_average=data.get("vote_average", 0.0),
-            raw=data,
-            channel_group_name=stream.channel_group_name,
-            show=stream.name,
+            channel_group_name = stream.channel_group_name,
+            show               = stream.name,
+            id                 = data.get("id", 0),
+            name               = data.get("name", ""),
+            overview           = data.get("overview", ""),
+            air_date           = data.get("air_date", ""),
+            raw_episodes       = data.get("episodes", []),   # ← here!
+            poster_path        = data.get("poster_path"),
+            season_number      = data.get("season_number", season),
+            vote_average       = data.get("vote_average", 0.0),
+            raw                = data,
         )
         settings.tmdb_season_cache[key] = meta
         return meta
+
     except Exception as e:
         logger.warning("[TMDB] ⚠️ Season lookup failed: %s", e)
         settings.tmdb_season_cache[key] = None

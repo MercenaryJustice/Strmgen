@@ -4,7 +4,6 @@ import asyncio
 import logging
 import fnmatch
 import json
-
 from datetime import datetime, timezone
 
 import httpx
@@ -19,9 +18,8 @@ from ..services.streams import fetch_streams_by_group_name
 from ..services._24_7 import process_24_7
 from ..services.movies import process_movies
 from ..services.tv import process_tv
-from .logger import setup_logger
+from .logger import setup_logger, notify_progress
 from ..core.models import MediaType
-from ..api.routers.logs import notify_progress
 
 logger = setup_logger(__name__)
 

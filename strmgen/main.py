@@ -17,7 +17,6 @@ from strmgen.core.pipeline import schedule_on_startup
 from strmgen.core.config import register_startup, settings
 from strmgen.core.state import close_pg_pool, init_pg_pool
 from strmgen.core.logger import setup_logger
-from strmgen.core.logger_sse import setup_sse_logging
 from strmgen.services.tmdb import init_tv_genre_map
 from .core.http import async_client as API_CLIENT
 
@@ -108,7 +107,6 @@ async def lifespan(app: FastAPI):
         """)
 
     schedule_on_startup()
-    setup_sse_logging()
     await get_access_token()
     await init_tv_genre_map()
     try:

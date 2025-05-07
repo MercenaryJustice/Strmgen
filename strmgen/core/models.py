@@ -5,7 +5,6 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List, Any, NamedTuple
 from enum import Enum
 from pathlib import Path
-from pydantic import BaseModel, root_validator
 
 from ..core.config import settings
 from ..core.fs_utils import clean_name, fix_url_string

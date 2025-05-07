@@ -1,7 +1,6 @@
 # strmgen/api/routers/logs.py
 
 import asyncio
-import json
 import logging
 
 from fastapi import APIRouter

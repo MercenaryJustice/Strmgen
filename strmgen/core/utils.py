@@ -114,9 +114,9 @@ def write_tvshow_nfo(stream: DispatcharrStream, show: TVShow) -> None:
         template = env.from_string(TVSHOW_TEMPLATE)
         xml = template.render(stream=stream, episode=None, show=show)
 
-        # Ensure directory exists
-        path.parent.mkdir(parents=True, exist_ok=True)
         try:
+            # Ensure directory exists
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(xml, encoding="utf-8")
 
             # Informative success log
@@ -151,10 +151,9 @@ def write_episode_nfo(stream: DispatcharrStream, episode: EpisodeMeta) -> None:
         template = env.from_string(EPISODE_TEMPLATE)
         xml = template.render(stream=stream, episode=episode)
 
-        # Ensure target directory exists
-        path.parent.mkdir(parents=True, exist_ok=True)
-        
         try:
+            # Ensure target directory exists
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(xml, encoding="utf-8")
 
 
@@ -198,11 +197,9 @@ def write_movie_nfo(stream: DispatcharrStream, movie: Movie) -> None:
         template = env.from_string(MOVIE_TEMPLATE)
         xml = template.render(stream=stream, movie=movie)
 
-        # Ensure target directory exists
-        path.parent.mkdir(parents=True, exist_ok=True)
-
         try:
-
+            # Ensure target directory exists
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(xml, encoding="utf-8")
 
             # Informative success log

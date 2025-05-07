@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="dashboard-grid">
+<style>
+  /* make the run message text dark so it's legible */
+  #run-log {
+    /* use your theme’s primary text color; #333 is a good fallback */
+    color: #333 !important;
+  }
+</style><div class="dashboard-grid">
 
   <!-- Run/Stop Card -->
   <div class="card welcome-card">
@@ -74,26 +80,22 @@ document.addEventListener('DOMContentLoaded', () => {
   const statusSource = new EventSource('/api/v1/process/stream/status');
   statusSource.addEventListener('message', event => {
     const { running } = JSON.parse(event.data);
-    const now    = Date.now();
-    const inGrace = runRequestedAt && (now - runRequestedAt) < 5000;
-    const effectiveRunning = running;
-    localStorage.removeItem('runRequestedAt');
 
-    if (wasRunning && !effectiveRunning) {
+    // if the pipeline just transitioned from running→stopped...
+    if (wasRunning && !running) {
       runMsg.textContent = 'Pipeline completed successfully';
       progressBar.value = 0;
       progressBar.max   = 0;
+      runBtn.style.display  = 'inline-block';
+      stopBtn.style.display = 'none';
     }
 
-    runBtn.disabled       = effectiveRunning;
-    runBtn.style.display  = effectiveRunning ? 'none' : 'inline-block';
-    stopBtn.style.display = effectiveRunning ? 'inline-block' : 'none';
-    wasRunning            = effectiveRunning;
-
-    if (!inGrace) {
-      runRequestedAt = 0;
-    }
+    runBtn.disabled       = running;
+    runBtn.style.display  = running ? 'none' : 'inline-block';
+    stopBtn.style.display = running ? 'inline-block' : 'none';
+    wasRunning            = running;    
   });
+
   statusSource.addEventListener('error', e => {
     console.error('Status SSE error:', e);
     statusSource.close();
@@ -132,6 +134,12 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!res.ok) throw new Error(await res.text());
       runMsg.textContent = 'Stop signal sent';
       appendLogEntry('--- stopped by user ---');
+      // Optional: immediately check status for a snappier UI
+      const status = await fetch('/api/v1/process/status').then(r => r.json());
+      if (!status.running) {
+        runBtn.style.display  = 'inline-block';
+        stopBtn.style.display = 'none';
+      }      
     } catch(err) {
       console.error('Stop error', err);
       runMsg.textContent = 'Error stopping';

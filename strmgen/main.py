@@ -1,8 +1,7 @@
 # strmgen/main.py
 
-# import logging
-
 from pathlib import Path
+from typing import Optional
 from fastapi import FastAPI, APIRouter
 from testcontainers.postgres import PostgresContainer
 from contextlib import asynccontextmanager
@@ -20,12 +19,6 @@ from strmgen.core.logger import setup_logger
 from strmgen.services.tmdb import init_tv_genre_map
 from .core.http import async_client as API_CLIENT
 
-# # Configure logging first thing
-# logging.basicConfig(
-#     level=logging.DEBUG,
-#     format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-# )
-# ─── FastAPI & Lifespan ────────────────────────────────────────────────────
 app = FastAPI(title="STRMGen API & UI", debug=True)
 
 # Web UI
@@ -45,11 +38,7 @@ api_v1.include_router(logs.router,     prefix="/logs")
 api_v1.include_router(tmdb.router,     prefix="/tmdb")
 api_v1.include_router(skipped.router,  prefix="/skipped")
 api_v1.include_router(settings_router.router, prefix="/settings")
-
 app.include_router(api_v1)
-
-postgres_container: PostgresContainer
-
 
 # Static files for the UI
 STATIC_DIR = Path(__file__).parent / "web_ui" / "static"
@@ -59,38 +48,43 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 def favicon():
     return FileResponse(STATIC_DIR / "img" / "strmgen_icon.png")
 
-# Lifespan: start scheduler + auth, shutdown scheduler cleanly
+
+# Global container reference
+postgres_container: Optional[PostgresContainer] = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global postgres_container
-    # 1) Launch a PostgreSQL Docker container
-    postgres_container = PostgresContainer(
-        image="postgres:15",
-        username=settings.db_user,
-        password=settings.db_pass,
-        dbname=settings.db_name,
-    )
 
+    # 1) Optionally launch a PostgreSQL Docker container
+    try:
+        if settings.enable_testcontainers:
+            postgres_container = PostgresContainer(
+                image=settings.testcontainers_image,
+                username=settings.db_user,
+                password=settings.db_pass,
+                dbname=settings.db_name,
+            )
+            postgres_container.start()
+            raw_dsn = postgres_container.get_connection_url()
+            if raw_dsn.startswith("postgresql+psycopg2://"):
+                raw_dsn = "postgresql://" + raw_dsn.split("://", 1)[1]
+            settings.postgres_dsn = raw_dsn
+            logger.info("Started test Postgres container: %s", raw_dsn)
+        else:
+            raise RuntimeError("Testcontainers disabled by configuration")
+    except Exception as e:
+        logger.warning(
+            "Testcontainers unavailable (%s); falling back to DATABASE_URL", e
+        )
+        settings.postgres_dsn = settings.database_url
 
-    postgres_container.start()
-
-    # 2) Inject its DSN into your settings so your pool uses it
-    # Normalize DSN for asyncpg (must start with "postgresql://" or "postgres://")
-    raw_dsn = postgres_container.get_connection_url()
-    if raw_dsn.startswith("postgresql+psycopg2://"):
-        raw_dsn = "postgresql://" + raw_dsn.split("://", 1)[1]
-    settings.postgres_dsn = raw_dsn
-
-
-    # 3) Now create your asyncpg pool
+    # 2) Create your asyncpg pool
     await init_pg_pool()
 
     # 3) Ensure your table & index exist
-    import asyncpg
-    # import the module‑level pool, not the function
     from strmgen.core.state import _pool as pg_pool
     async with pg_pool.acquire() as conn:
-        # run your DDL
         await conn.execute("""
         CREATE TABLE IF NOT EXISTS skipped_streams (
           tmdb_id        BIGINT   PRIMARY KEY,
@@ -106,29 +100,36 @@ async def lifespan(app: FastAPI):
           ON skipped_streams(dispatcharr_id);
         """)
 
+    # 4) Start scheduler, auth, and TMDb genre map
     schedule_on_startup()
     await get_access_token()
     await init_tv_genre_map()
+
     try:
         yield
     finally:
-        from strmgen.core.pipeline import scheduler
-        from strmgen.services.tmdb import _tmdb_client, _tmdb_image_client
+        # Shutdown sequence
 
-        # 1) Close your pool
+        # 1) Close DB pool
         await close_pg_pool()
 
-        # 2) Stop & remove the container
-        postgres_container.stop()
+        # 2) Stop test container if it was started
+        if postgres_container:
+            try:
+                postgres_container.stop()
+                logger.info("Stopped test Postgres container")
+            except Exception:
+                logger.exception("Error stopping test Postgres container")
 
-        # stop background jobs
+        # 3) Stop background jobs
+        from strmgen.core.pipeline import scheduler
         scheduler.shutdown(wait=False)
 
-        # close all HTTPX clients
+        # 4) Close HTTP clients
         await API_CLIENT.aclose()
+        from strmgen.services.tmdb import _tmdb_client, _tmdb_image_client
         await _tmdb_client.aclose()
         await _tmdb_image_client.aclose()
 
+# Attach the lifespan to the app
 app.router.lifespan_context = lifespan
-
-

@@ -1,13 +1,12 @@
 # strmgen/state.py
 
-import threading
 import asyncpg
-from typing import TypedDict, Optional, List, Any
+from typing import TypedDict, Optional, Any
 from dataclasses import is_dataclass, asdict
 
-from .config import CONFIG_PATH, settings
+from .config import settings
 from .utils import setup_logger
-from strmgen.core.models import DispatcharrStream, MediaType
+from strmgen.core.models import DispatcharrStream
 
 logger = setup_logger(__name__)
 

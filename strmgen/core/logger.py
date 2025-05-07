@@ -1,17 +1,10 @@
 # strmgen/core/logger.py
+
+import sys
+import json
 import logging
-from logging.handlers import RotatingFileHandler
-from pathlib import Path
-from logging import LoggerAdapter
-
-# ─── Log Path ────────────────────────────────────────────────────────────────
-LOG_DIR = Path(__file__).parent.parent / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-LOG_PATH = LOG_DIR / "strmgen.log"
-
-# ─── Rotation Settings ───────────────────────────────────────────────────────
-MAX_BYTES    = 10 * 1024 * 1024   # 10 MB
-BACKUP_COUNT = 5                  # keep 5 archives
+import asyncio
+from logging import Handler
 
 # ─── Custom Formatter ────────────────────────────────────────────────────────
 class CategoryFormatter(logging.Formatter):
@@ -20,36 +13,67 @@ class CategoryFormatter(logging.Formatter):
             record.category = record.name.upper()
         return super().format(record)
 
+# shared formatter for queue & (optionally) console
 formatter = CategoryFormatter(
     fmt="%(asctime)s %(levelname)-8s [%(category)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-# ─── File Handler with Rotation ───────────────────────────────────────────────
-file_handler = RotatingFileHandler(
-    filename=str(LOG_PATH),
-    maxBytes=MAX_BYTES,
-    backupCount=BACKUP_COUNT,
-    encoding="utf-8"
-)
-file_handler.setFormatter(formatter)
+# ─── In‑memory queues ─────────────────────────────────────────────────────────
+# lines for real‑time logs
+log_queue: asyncio.Queue[str] = asyncio.Queue()
+# queues for progress events
+progress_listeners: list[asyncio.Queue[str]] = []
 
-# ─── Base Logger Setup ────────────────────────────────────────────────────────
-_base_logger = logging.getLogger("strmgen")
-_base_logger.setLevel(logging.INFO)
-_base_logger.addHandler(file_handler)
-_base_logger.propagate = False
+# ─── Queue‐based handler ────────────────────────────────────────────────────
+class AsyncQueueHandler(Handler):
+    """Push formatted log records into an asyncio.Queue."""
+    def emit(self, record: logging.LogRecord) -> None:
+        msg = self.format(record)
+        try:
+            log_queue.put_nowait(msg)
+        except asyncio.QueueFull:
+            # drop on overflow
+            pass
 
 # ─── Public API ───────────────────────────────────────────────────────────────
-def setup_logger(category: str) -> LoggerAdapter:
+def setup_logger(name: str, level: int = logging.INFO) -> logging.Logger:
     """
-    Get a logger that tags every record with a CATEGORY.
-    Usage in your routers or modules:
-        from strmgen.core.logger import LOG_PATH, setup_logger
-
-        logger = setup_logger("CIRCULATION")
-        logger.info("Circulation task started")
+    Configure a logger that writes to both stdout and the in‑memory queue.
     """
-    return LoggerAdapter(_base_logger, {"category": category.upper()})
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    # drop any existing handlers (e.g. file handlers)
+    logger.handlers.clear()
 
+    # 1) Console → stdout
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setLevel(level)
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
 
+    # 2) In‑memory queue → for SSE
+    qh = AsyncQueueHandler()
+    qh.setLevel(level)
+    qh.setFormatter(formatter)
+    logger.addHandler(qh)
+
+    return logger
+
+def notify_progress(media_type, group, current, total):
+    """
+    Broadcast progress updates to all connected /status SSE clients.
+    """
+    payload = json.dumps({
+        "type": "progress",
+        "media_type": media_type.value,
+        "group": group,
+        "current": current,
+        "total": total
+    })
+    for q in progress_listeners:
+        try:
+            q.put_nowait(payload)
+        except asyncio.QueueFull:
+            # drop if listener is slow
+            pass

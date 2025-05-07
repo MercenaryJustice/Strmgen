@@ -1,7 +1,6 @@
 # strmgen/services/tv.py
 
 import asyncio
-import logging
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Optional, List
@@ -10,24 +9,16 @@ from more_itertools import chunked
 from ..core.state import mark_skipped, is_skipped, SkippedStream
 from ..core.config import settings
 from ..core.models import DispatcharrStream, SeasonMeta
+from ..core.logger import setup_logger
 from .tmdb import TVShow, lookup_show, get_season_meta, download_if_missing
 from .subtitles import download_episode_subtitles
-from ..core.utils import (
-    filter_by_threshold,
-    write_tvshow_nfo,
-    write_episode_nfo
-)
+from ..core.utils import filter_by_threshold, write_tvshow_nfo, write_episode_nfo
 from .streams import fetch_streams
 from ..core.auth import get_auth_headers
 
-logger = logging.getLogger(__name__)
-RE_EPISODE_TAG = settings.TV_SERIES_EPIDOSE_RE
-log_tag = "[TV] 🖼️"
-
-# Track which show‐NFOs we've already written this run
+logger = setup_logger(__name__)
+TAG = "[TV] 🖼️"
 _skipped: set[str] = set()
-
-
 
 
 async def download_subtitles_if_enabled(
@@ -37,13 +28,15 @@ async def download_subtitles_if_enabled(
     season_folder: Path,
     mshow: Optional[TVShow],
 ) -> None:
-    """
-    Async download of episode subtitles if enabled.
-    """
+    # local import to avoid circular deps
+    from ..core.pipeline import is_running
+
+    if not is_running():
+        return
+
     if settings.opensubtitles_download:
-        logger.info("[SUB] 🔽 Downloading subtitles for: %s S%02dE%02d", show, season, ep)
-        tmdb_id = (mshow.external_ids.get("imdb_id")
-                   if mshow and mshow.external_ids else None)
+        logger.info(f"{TAG} 🔽 Downloading subtitles for: {show} S{season:02d}E{ep:02d}")
+        tmdb_id = (mshow.external_ids.get("imdb_id") if mshow and mshow.external_ids else None)
         await download_episode_subtitles(
             show,
             season,
@@ -59,115 +52,152 @@ async def process_tv(
     headers: Dict[str, str],
     reprocess: bool = False
 ) -> None:
-    TAG = "[TV]"
+    from ..core.pipeline import is_running
 
-    # 1) Drop any streams missing season/episode
+    # 1) Filter out streams missing season/episode
     streams = [s for s in streams if s.season is not None and s.episode is not None]
 
-    # 2) Build show→season→[streams] map
+    # 2) Group streams by show→season
     shows: Dict[str, Dict[int, List[DispatcharrStream]]] = defaultdict(lambda: defaultdict(list))
     for s in streams:
         shows[s.name][s.season].append(s)
 
-    # 3) Iterate each show
-    for show_name, seasons in shows.items():
-        if show_name in _skipped:
-            continue
+    # 3) Chunk into show‑batches
+    show_items   = list(shows.items())
+    show_batches = list(chunked(show_items, settings.tv_show_batch_size))
 
-        logger.info(f"{TAG} ▶️ Processing show {show_name!r}")
+    async def run_show_batch(batch_idx: int, batch: List):
+        if not is_running():
+            return
 
-        # 3a) Lookup & cache show metadata
-        sample_stream = next(iter(next(iter(seasons.values()))))
-        mshow: Optional[TVShow] = await lookup_show(sample_stream)
-        if not mshow:
-            _skipped.add(show_name)
-            continue
+        logger.info(
+            f"{TAG} 🔷 Starting show‑batch {batch_idx}/{len(show_batches)}: "
+            f"{[name for name,_ in batch]}"
+        )
+        sem_show = asyncio.Semaphore(settings.concurrent_show_requests)
 
-        # 3b) Threshold check once per show
-        passed = await asyncio.to_thread(filter_by_threshold, show_name, mshow.raw)
-        if not passed:
-            await mark_skipped("TV", group, mshow, sample_stream)
-            _skipped.add(show_name)
-            logger.info(f"{TAG} 🚫 Threshold filter failed for: {show_name}")
-            continue
+        async def _process_one_show(item):
+            show_name, seasons = item
+            if not is_running() or show_name in _skipped:
+                return
 
-        # 3c) Write show‐level .nfo & schedule show images
-        if settings.write_nfo and show_name:
-            await asyncio.to_thread(write_tvshow_nfo, sample_stream, mshow)
-            asyncio.create_task(download_if_missing(TAG, sample_stream, mshow))
-            if settings.update_tv_series_nfo:
-                # if only updating series‐level NFO, skip episodes
-                continue
+            async with sem_show:
+                logger.info(f"{TAG} ▶️ Processing show {show_name!r}")
 
-        # 4) Iterate each season
-        for season_num, eps in seasons.items():
-            logger.info(f"{TAG} 📅 Fetch season {show_name!r} S{season_num:02d} ({len(eps)} eps)")
+                # a) Lookup & cache show metadata
+                sample = next(iter(next(iter(seasons.values()))))
+                mshow: Optional[TVShow] = await lookup_show(sample)
+                if not is_running() or not mshow:
+                    _skipped.add(show_name)
+                    return
 
-            season_meta: Optional[SeasonMeta] = await get_season_meta(eps[0], mshow)
-            if not season_meta:
-                logger.warning(f"{TAG} ❌ No metadata for {show_name!r} S{season_num:02d}")
-                continue
+                # b) Threshold check
+                passed = await asyncio.to_thread(filter_by_threshold, show_name, mshow.raw)
+                if not is_running() or not passed:
+                    await mark_skipped("TV", group, mshow, sample)
+                    _skipped.add(show_name)
+                    logger.info(f"{TAG} 🚫 Threshold filter failed for: {show_name}")
+                    return
 
-            # schedule season poster download
-            asyncio.create_task(download_if_missing(TAG, eps[0], season_meta))
+                # c) Write show‑level NFO & artwork
+                if settings.write_nfo:
+                    await asyncio.to_thread(write_tvshow_nfo, sample, mshow)
+                    asyncio.create_task(download_if_missing(TAG, sample, mshow))
+                    if settings.update_tv_series_nfo:
+                        return
 
-            # 5) Process episodes in batches
-            batches = list(chunked(eps, settings.batch_size))
-            for batch_idx, batch in enumerate(batches, start=1):
-                logger.info(f"{TAG} 🔸 Processing batch {batch_idx}/{len(batches)} for {show_name!r} S{season_num:02d}")
+                # d) Seasons & episode batches
+                for season_num, eps in seasons.items():
+                    if not is_running():
+                        return
+                    logger.info(
+                        f"{TAG} 📅 Fetch season {show_name!r} "
+                        f"S{season_num:02d} ({len(eps)} eps)"
+                    )
+                    season_meta: Optional[SeasonMeta] = await get_season_meta(eps[0], mshow)
+                    if not is_running() or not season_meta:
+                        logger.warning(f"{TAG} ❌ No metadata for {show_name!r} S{season_num:02d}")
+                        continue
 
-                # limit concurrency within this batch
-                sem = asyncio.Semaphore(settings.concurrent_requests)
+                    asyncio.create_task(download_if_missing(TAG, eps[0], season_meta))
 
-                async def _process_one(stream: DispatcharrStream):
-                    async with sem:
-                        # — your existing per-episode skip & write logic —
-                        if stream.name in _skipped:
+                    ep_batches = list(chunked(eps, settings.batch_size))
+                    for ep_idx, ep_batch in enumerate(ep_batches, start=1):
+                        if not is_running():
                             return
-                        if not reprocess and await is_skipped(stream.stream_type.name, stream.id):
-                            _skipped.add(stream.name)
+                        logger.info(
+                            f"{TAG} 🔸 Episode batch {ep_idx}/{len(ep_batches)} "
+                            f"for {show_name!r} S{season_num:02d}"
+                        )
+                        sem_ep = asyncio.Semaphore(settings.concurrent_requests)
+
+                        async def _process_one_ep(stream: DispatcharrStream):
+                            if not is_running():
+                                return
+                            async with sem_ep:
+                                if not is_running():
+                                    return
+                                if not reprocess and await is_skipped(stream.stream_type.name, stream.id):
+                                    _skipped.add(stream.name)
+                                    return
+
+                                # write .strm
+                                ep_meta = season_meta.episode_map.get(stream.episode)  # type: ignore
+                                if not ep_meta:
+                                    return
+                                ep_meta.strm_path.parent.mkdir(parents=True, exist_ok=True)
+                                ep_meta.strm_path.write_text(stream.proxy_url, encoding="utf-8")
+
+                                # per‑episode NFO & artwork
+                                if settings.write_nfo:
+                                    await asyncio.to_thread(write_episode_nfo, stream, ep_meta)
+                                    if ep_meta.still_path:
+                                        asyncio.create_task(
+                                            download_if_missing(TAG, stream, ep_meta)
+                                        )
+
+                                # subtitles
+                                await download_subtitles_if_enabled(
+                                    show_name,
+                                    season_num,
+                                    stream.episode,
+                                    season_meta.season_folder,
+                                    mshow,
+                                )
+
+                        await asyncio.gather(*(_process_one_ep(s) for s in ep_batch))
+                        if not is_running():
                             return
+                        await asyncio.sleep(settings.batch_delay_seconds)
 
-                        # write .strm
-                        episode_meta = season_meta.episode_map.get(stream.episode)  # type: ignore
-                        if not episode_meta: return
-                        episode_meta.strm_path.parent.mkdir(parents=True, exist_ok=True)
-                        episode_meta.strm_path.write_text(stream.proxy_url, encoding="utf-8")
+                logger.info(f"{TAG} ✅ Finished show {show_name!r}")
 
-                        if settings.write_nfo:
-                            await asyncio.to_thread(write_episode_nfo, stream, episode_meta)
-                            if episode_meta.still_path:
-                                asyncio.create_task(download_if_missing(TAG, stream, episode_meta))
+        # launch this batch of shows
+        await asyncio.gather(*(_process_one_show(item) for item in batch))
+        if not is_running():
+            return
+        await asyncio.sleep(settings.tv_show_batch_delay_seconds)
 
-                # fire off the batch
-                await asyncio.gather(*[_process_one(s) for s in batch])
+    # 4) Kick off all show‑batches in parallel
+    await asyncio.gather(*(
+        run_show_batch(idx, batch)
+        for idx, batch in enumerate(show_batches, start=1)
+    ))
 
-                # pause between batches
-                await asyncio.sleep(settings.batch_delay_seconds)
-
-
-
-
-        logger.info(f"{TAG} ✅ Finished show {show_name!r}")
-
-    logger.info(f"{TAG} Completed processing TV streams for group: {group}")
-
+    logger.info(f"{TAG} 🏁 Completed processing TV streams for group: {group}")
 
 
 async def reprocess_tv(skipped: SkippedStream) -> bool:
-    """
-    Async reprocess of a skipped TV show.
-    """
+    from ..core.pipeline import is_running
+
     headers = await get_auth_headers()
     try:
         streams = await fetch_streams(skipped["group"], skipped["stream_type"], headers=headers)
-        if not streams:
+        if not is_running() or not streams:
             logger.error("Cannot reprocess TV %s: no streams", skipped["name"])
             return False
 
         await process_tv(streams, skipped["group"], headers, True)
-
-        #await asyncio.to_thread(set_reprocess, skipped["tmdb_id"], False)
         logger.info("✅ Reprocessed TV show %s", skipped["name"])
         return True
     except Exception as e:

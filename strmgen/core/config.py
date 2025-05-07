@@ -35,10 +35,15 @@ class Settings(BaseModel):
     password:        str
     stream_base_url: str
 
+    enable_testcontainers: bool = Field(
+        False,
+        description="Whether to use a PostgreSQL Docker container for testing",
+    )
+    database_url: str = "postgresql://strmgen:secret@192.168.86.33:5432/strmgen"
     db_user: str = "strmgen"
     db_pass: str = "secret"
     db_name: str = "strmgen"
-    postgres_dsn: str  | None = None
+    postgres_dsn: str = "postgresql://strmgen:secret@192.168.86.33:5432/strmgen"
 
     # Runtime tokens (populated later)
     access:  Optional[str]

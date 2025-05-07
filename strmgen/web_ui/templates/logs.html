@@ -3,156 +3,68 @@
   <div class="section-header">
     <h2>Application Logs</h2>
     <div class="log-controls">
-      <input type="text" id="filter-input" class="filter-input" placeholder="Filter logs…" title="Type to filter log lines" />
-      <select id="limit-select" title="Rows to show" style="margin-left:10px;">
-        <option value="250">250</option>
-        <option value="500" selected>500</option>
-        <option value="750">750</option>
-        <option value="1000">1000</option>
-      </select>
-      <button id="clear-btn" class="clear-button" style="margin-left:10px;">Clear Logs</button>
+      <input
+        type="text"
+        id="filter-input"
+        class="filter-input"
+        placeholder="Filter logs…"
+        title="Type to filter log lines"
+      />
+      <button
+        id="clear-btn"
+        class="clear-button"
+        style="margin-left:10px;"
+        title="Clear the view"
+      >Clear View</button>
     </div>
   </div>
 
-  <div class="logs" id="log-container"></div>
-  <button id="load-more-btn" class="clear-button" style="display:none; margin:10px auto;">
-    Load more…
-  </button>
+  <div class="logs" id="log-container" style="height:70vh; overflow:auto;"></div>
 
   <script>
-    const container    = document.getElementById('log-container');
-    const clearBtn     = document.getElementById('clear-btn');
-    const filterInput  = document.getElementById('filter-input');
-    const limitSelect  = document.getElementById('limit-select');
-    const loadMoreBtn  = document.getElementById('load-more-btn');
-    const sseUrl       = '/api/v1/logs/stream';
-    const apiLogs      = '/api/v1/logs';
-    const apiClear     = '/api/v1/logs/clear';
+    const container   = document.getElementById('log-container');
+    const filterInput = document.getElementById('filter-input');
+    const clearBtn    = document.getElementById('clear-btn');
 
-    let filterText     = '';
-    let limitStep      = parseInt(limitSelect.value, 10);
-    let loadedLimit    = limitStep;
-    let totalLines     = 0;
-    let autoScroll     = true;
-    let newLogBuffer   = [];
-    let flushScheduled = false;
+    let filterText = '';
 
-    // Track user scrolling: only auto-scroll when at bottom
-    container.addEventListener('scroll', () => {
-      const threshold = 5;
-      autoScroll = container.scrollHeight - container.scrollTop - container.clientHeight <= threshold;
-    });
-
-    // Prune old entries to maintain window
-    function pruneOld() {
-      while (container.childElementCount > loadedLimit) {
-        container.removeChild(container.firstChild);
-      }
+    // Only show lines matching the filter
+    function appendLine(line) {
+      if (filterText && !line.toLowerCase().includes(filterText)) return;
+      const div = document.createElement('div');
+      div.className = 'log-entry';
+      div.textContent = line;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
     }
 
-    // Flush buffered logs in batch
-    function flushBuffer() {
-      flushScheduled = false;
-      if (!newLogBuffer.length) return;
-      const frag = document.createDocumentFragment();
-      newLogBuffer.forEach(line => {
-        if (filterText && !line.toLowerCase().includes(filterText)) return;
-        const div = document.createElement('div');
-        div.className = 'log-entry';
-        div.textContent = line;
-        frag.appendChild(div);
-      });
-      newLogBuffer = [];
-      container.appendChild(frag);
-      pruneOld();
-      if (autoScroll) container.scrollTop = container.scrollHeight;
-    }
-
-    // Append a new line via buffer
-    function bufferLine(line) {
-      newLogBuffer.push(line);
-      if (autoScroll && !flushScheduled) {
-        flushScheduled = true;
-        requestAnimationFrame(flushBuffer);
-      }
-    }
-
-    // Load initial and paginated logs
-    function loadLogs() {
-      fetch(`${apiLogs}?limit=${loadedLimit}`)
-        .then(res => res.json())
-        .then(data => {
-          totalLines = data.total ?? data.logs.length;
-          container.innerHTML = '';
-          const frag = document.createDocumentFragment();
-          data.logs.forEach(line => {
-            if (filterText && !line.toLowerCase().includes(filterText)) return;
-            const div = document.createElement('div');
-            div.className = 'log-entry';
-            div.textContent = line;
-            frag.appendChild(div);
-          });
-          container.appendChild(frag);
-          pruneOld();
-          if (autoScroll) container.scrollTop = container.scrollHeight;
-          // Toggle Load More
-          if (totalLines > loadedLimit) {
-            loadMoreBtn.style.display = 'block';
-            loadMoreBtn.textContent = `Load ${limitStep} more…`;
-          } else {
-            loadMoreBtn.style.display = 'none';
-          }
-        })
-        .catch(err => console.error('Failed to load logs:', err));
-    }
-
-    // Filter handler
+    // Handle filter input
     filterInput.addEventListener('input', () => {
       filterText = filterInput.value.trim().toLowerCase();
-      loadLogs();
+      // Clear and let new incoming lines repaint under the new filter
+      container.innerHTML = '';
     });
 
-    // Change batch size
-    limitSelect.addEventListener('change', () => {
-      limitStep   = parseInt(limitSelect.value, 10);
-      loadedLimit = limitStep;
-      loadLogs();
+    // Clear the view (client‑side only)
+    clearBtn.addEventListener('click', () => {
+      container.innerHTML = '';
     });
 
-    // Load more
-    loadMoreBtn.addEventListener('click', () => {
-      loadedLimit += limitStep;
-      loadMoreBtn.style.display = 'none';
-      loadLogs();
-    });
-
-    // Clear logs
-    clearBtn.addEventListener('click', async () => {
-      clearBtn.disabled = true;
-      try {
-        const res = await fetch(apiClear, { method: 'POST' });
-        const j   = await res.json();
-        if (res.ok && j.status === 'cleared') {
-          loadedLimit = limitStep;
-          container.innerHTML = '';
-        }
-      } catch(e) {
-        console.error('Error clearing logs:', e);
-      } finally {
-        clearBtn.disabled = false;
-      }
-    });
-
-    // SSE for live streaming
-    const evtSource = new EventSource(sseUrl);
-    evtSource.onmessage = e => bufferLine(e.data);
-    evtSource.onerror   = e => {
-      console.error('SSE error:', e);
-      evtSource.close();
-      bufferLine('--- live log stream closed ---');
+    // SSE for live logs
+    const logsSource = new EventSource('/api/v1/logs/stream/logs');
+    logsSource.onmessage = e => appendLine(e.data);
+    logsSource.onerror = () => {
+      appendLine('— live log stream closed —');
+      logsSource.close();
     };
 
-    // Initial load
-    loadLogs();
+    // SSE for progress events
+    const statusSource = new EventSource('/api/v1/logs/status');
+    statusSource.addEventListener('progress', e => {
+      const p = JSON.parse(e.data);
+      appendLine(
+        `Progress → ${p.media_type} “${p.group}”: ${p.current}/${p.total}`
+      );
+    });
   </script>
 {% endblock %}

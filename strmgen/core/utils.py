@@ -55,7 +55,8 @@ def write_if(
         writer_fn(stream, tmdb)
 
 # ─── NFO Templates ────────────────────────────────────────────────────────────
-TVSHOW_TEMPLATE = """<tvshow>
+TVSHOW_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
+<tvshow>
   <title>{{ show.name | e }}</title>
   <originaltitle>{{ show.original_name | e }}</originaltitle>
   <plot>{{ show.overview | e }}</plot>
@@ -71,7 +72,8 @@ TVSHOW_TEMPLATE = """<tvshow>
   <studio>{{ show.raw.get('networks', [])[0]['name'] if show.raw.get('networks') else '' }}</studio>
 </tvshow>"""
 
-EPISODE_TEMPLATE = """<episodedetails>
+EPISODE_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
+<episodedetails>
   <title>{{ episode.name | e }}</title>
   <season>{{ episode.season_number }}</season>
   <episode>{{ episode.episode_number }}</episode>
@@ -82,7 +84,7 @@ EPISODE_TEMPLATE = """<episodedetails>
   <tmdbid>{{ episode.id }}</tmdbid>
 </episodedetails>"""
 
-MOVIE_TEMPLATE = """
+MOVIE_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 <movie>
   <title>{{ movie.title | e }}</title>
   <originaltitle>{{ movie.original_title | e }}</originaltitle>
@@ -114,17 +116,20 @@ def write_tvshow_nfo(stream: DispatcharrStream, show: TVShow) -> None:
 
         # Ensure directory exists
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(xml, encoding="utf-8")
+        try:
+            path.write_text(xml, encoding="utf-8")
 
-        # Informative success log
-        logger.info(
-            "[NFO] ✅ TV show NFO written: path=%s | show=%s | group=%s",
-            path,
-            show.name,
-            show.channel_group_name
-        )
-        # Optionally, for debugging the output:
-        logger.debug("[NFO] Content written for %s:\n%s", path, xml)
+            # Informative success log
+            logger.info(
+                "[NFO] ✅ TV show NFO written: path=%s | show=%s | group=%s",
+                path,
+                show.name,
+                show.channel_group_name
+            )
+            # Optionally, for debugging the output:
+            logger.debug("[NFO] Content written for %s:\n%s", path, xml)
+        except PermissionError as pe:
+            logger.error(f"[NFO] ❌ Cannot overwrite NFO for {stream.name}: {pe}")
 
     except Exception as e:
         # Detailed error log
@@ -148,23 +153,28 @@ def write_episode_nfo(stream: DispatcharrStream, episode: EpisodeMeta) -> None:
 
         # Ensure target directory exists
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(xml, encoding="utf-8")
+        
+        try:
+            path.write_text(xml, encoding="utf-8")
 
-        # Informative success log
-        logger.info(
-            "[NFO] ✅ Episode NFO written: path=%s | show=%s | S%02dE%02d | group=%s",
-            path,
-            episode.show,
-            episode.season_number,
-            episode.episode_number,
-            episode.group
-        )
-        # Debug output of the rendered content (can be toggled off in production)
-        logger.debug(
-            "[NFO] Episode NFO content for %s:\n%s",
-            path,
-            xml
-        )
+
+            # Informative success log
+            logger.info(
+                "[NFO] ✅ Episode NFO written: path=%s | show=%s | S%02dE%02d | group=%s",
+                path,
+                episode.show,
+                episode.season_number,
+                episode.episode_number,
+                episode.group
+            )
+            # Debug output of the rendered content (can be toggled off in production)
+            logger.debug(
+                "[NFO] Episode NFO content for %s:\n%s",
+                path,
+                xml
+            )
+        except PermissionError as pe:
+            logger.error(f"[NFO] ❌ Cannot overwrite NFO for {stream.name}: {pe}")
 
     except Exception as e:
         # Detailed error log with traceback
@@ -190,22 +200,28 @@ def write_movie_nfo(stream: DispatcharrStream, movie: Movie) -> None:
 
         # Ensure target directory exists
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(xml, encoding="utf-8")
 
-        # Informative success log
-        logger.info(
-            "[NFO] ✅ Movie NFO written: path=%s | title=%s | year=%s | group=%s",
-            path,
-            movie.title,
-            movie.year or "N/A",
-            stream.channel_group_name
-        )
-        # Debug‑level log of the actual XML (toggle off in production)
-        logger.debug(
-            "[NFO] Movie NFO content for %s:\n%s",
-            path,
-            xml
-        )
+        try:
+
+            path.write_text(xml, encoding="utf-8")
+
+            # Informative success log
+            logger.info(
+                "[NFO] ✅ Movie NFO written: path=%s | title=%s | year=%s | group=%s",
+                path,
+                movie.title,
+                movie.year or "N/A",
+                stream.channel_group_name
+            )
+            # Debug‑level log of the actual XML (toggle off in production)
+            logger.debug(
+                "[NFO] Movie NFO content for %s:\n%s",
+                path,
+                xml
+            )
+        except PermissionError as pe:
+            logger.error(f"[NFO] ❌ Cannot overwrite NFO for {stream.name}: {pe}")
+
 
     except Exception as e:
         # Detailed error log with traceback

@@ -294,7 +294,7 @@ class TVShow:
         # pack into a minimal StreamInfo
         info = StreamInfo(
             group   = self.channel_group_name,
-            title   = self.name,
+            title   = clean_name(self.name),
             # movies use .year, tv doesn’t need it
             year    = None,
             season  = None,

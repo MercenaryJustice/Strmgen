@@ -367,7 +367,7 @@ async def lookup_show(show: DispatcharrStream) -> Optional[TVShow]:
     names = [_tv_genre_map.get(g, "") for g in genres]
     tv = TVShow(
         id=raw.get("id", 0),
-        name=raw.get("name", show_name),
+        name=clean_name(raw.get("name", show_name)),
         original_name=raw.get("original_name", ""),
         overview=raw.get("overview", ""),
         poster_path=raw.get("poster_path"),

@@ -17,7 +17,7 @@ from strmgen.core.config import register_startup, settings
 from strmgen.core.state import close_pg_pool, init_pg_pool
 from strmgen.core.logger import setup_logger
 from strmgen.services.tmdb import init_tv_genre_map
-from .core.http import async_client as API_CLIENT
+from .core.httpclient import async_client, tmdb_client, tmdb_image_client
 
 app = FastAPI(title="STRMGen API & UI", debug=True)
 
@@ -117,7 +117,7 @@ async def lifespan(app: FastAPI):
         await close_pg_pool()
 
         # 2) Stop test container if it was started
-        if postgres_container:
+        if postgres_container is not None:
             try:
                 postgres_container.stop()
                 logger.info("Stopped test Postgres container")
@@ -126,22 +126,14 @@ async def lifespan(app: FastAPI):
 
         # 3) Stop background jobs
         from strmgen.core.pipeline import scheduler
-        from strmgen.services.tmdb import _tmdb_client, _tmdb_image_client
+        await tmdb_client.aclose()
+        await tmdb_image_client.aclose()
 
-        # 1) Close your pool
-        await close_pg_pool()
-
-        # 2) Stop & remove the container
-        postgres_container.stop()
-
-        # stop background jobs
+        # 4) stop background jobs
         scheduler.shutdown(wait=False)
 
-        # 4) Close HTTP clients
-        await API_CLIENT.aclose()
-        from strmgen.services.tmdb import _tmdb_client, _tmdb_image_client
-        await _tmdb_client.aclose()
-        await _tmdb_image_client.aclose()
+        # 5) Close HTTP clients
+        await async_client.aclose()
 
 # Attach the lifespan to the app
 app.router.lifespan_context = lifespan

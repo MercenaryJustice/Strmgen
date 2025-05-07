@@ -64,7 +64,7 @@ async def process_tv(
 
     # 3) Chunk into show‑batches
     show_items   = list(shows.items())
-    show_batches = list(chunked(show_items, settings.tv_show_batch_size))
+    show_batches = list(chunked(show_items, settings.batch_size))
 
     async def run_show_batch(batch_idx: int, batch: List):
         if not is_running():
@@ -74,7 +74,7 @@ async def process_tv(
             f"{TAG} 🔷 Starting show‑batch {batch_idx}/{len(show_batches)}: "
             f"{[name for name,_ in batch]}"
         )
-        sem_show = asyncio.Semaphore(settings.concurrent_show_requests)
+        sem_show = asyncio.Semaphore(settings.concurrent_requests)
 
         async def _process_one_show(item):
             show_name, seasons = item
@@ -176,7 +176,7 @@ async def process_tv(
         await asyncio.gather(*(_process_one_show(item) for item in batch))
         if not is_running():
             return
-        await asyncio.sleep(settings.tv_show_batch_delay_seconds)
+        await asyncio.sleep(settings.batch_delay_seconds)
 
     # 4) Kick off all show‑batches in parallel
     await asyncio.gather(*(

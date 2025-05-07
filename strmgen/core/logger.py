@@ -21,7 +21,7 @@ formatter = CategoryFormatter(
 
 # ─── In‑memory queues ─────────────────────────────────────────────────────────
 # lines for real‑time logs
-log_queue: asyncio.Queue[str] = asyncio.Queue()
+log_queue: asyncio.Queue[str] = asyncio.Queue(maxsize=1000)
 # queues for progress events
 progress_listeners: list[asyncio.Queue[str]] = []
 

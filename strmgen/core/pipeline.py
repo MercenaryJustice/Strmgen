@@ -6,7 +6,6 @@ import fnmatch
 import json
 from datetime import datetime, timezone
 
-import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.events import EVENT_JOB_EXECUTED, JobExecutionEvent
@@ -20,7 +19,7 @@ from ..services.movies import process_movies
 from ..services.tv import process_tv
 from .logger import setup_logger, notify_progress
 from ..core.models import MediaType
-from ..api.routers.logs import notify_progress
+from .httpclient import async_client
 
 logger = setup_logger(__name__)
 
@@ -80,13 +79,13 @@ async def run_pipeline():
 
         # 1) Fetch all group names
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(
-                    f"{settings.api_base}/api/channels/streams/groups/",
-                    headers=headers
-                )
-                resp.raise_for_status()
-                all_groups = resp.json()
+            resp = await async_client.get(
+                "/api/channels/streams/groups/",
+                headers=headers,
+                timeout=10
+            )
+            resp.raise_for_status()
+            all_groups = resp.json()
             logger.info("Retrieved %d groups", len(all_groups))
         except Exception:
             logger.exception("Failed to fetch groups, aborting")

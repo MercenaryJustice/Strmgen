@@ -1,6 +1,5 @@
 import asyncio
 import random
-from aiolimiter import AsyncLimiter
 from difflib import SequenceMatcher
 from typing import Optional, Dict, List, Any, TypeVar
 from pathlib import Path
@@ -8,24 +7,14 @@ from pathlib import Path
 import aiofiles
 import httpx
 
+from httpx import PoolTimeout, HTTPError
 from ..core.config import settings
 from ..core.utils import setup_logger
 from ..core.fs_utils import clean_name, safe_mkdir
 from ..core.models import Movie, TVShow, SeasonMeta, EpisodeMeta, DispatcharrStream
+from ..core.httpclient import tmdb_client, tmdb_image_client, tmdb_limiter
 
 logger = setup_logger(__name__)
-
-
-# Constants
-TMDB_BASE = "https://api.themoviedb.org/3"
-TMDB_IMG_BASE = "https://image.tmdb.org/t/p"
-
-
-# Shared HTTP Clients
-_tmdb_client = httpx.AsyncClient(base_url=TMDB_BASE, timeout=10.0)
-_tmdb_image_client = httpx.AsyncClient(base_url=TMDB_IMG_BASE, timeout=10.0)
-# Rate limiter parameterized by settings
-tmdb_limiter = AsyncLimiter(max_rate=settings.tmdb_rate_limit, time_period=10)
 
 
 # Caches
@@ -52,7 +41,7 @@ async def _get(endpoint: str, params: Dict[str, Any]) -> Any:
     for attempt in range(3):
         try:
             async with tmdb_limiter:
-                resp = await _tmdb_client.get(endpoint, params={**params, "api_key": settings.tmdb_api_key})
+                resp = await tmdb_client.get(endpoint, params={**params, "api_key": settings.tmdb_api_key})
             if resp.status_code == 429:
                 logger.warning("[TMDB] 429 received for %s, backing off %ds", endpoint, backoff)
                 await asyncio.sleep(backoff + random.random())
@@ -267,16 +256,50 @@ async def fetch_tv_details(
         return None
 
 async def _download_image(path_val: str, dest: Path) -> None:
+    """
+    Download a TMDB image, with concurrency throttling, retry on PoolTimeout,
+    and back‐off. Writes to `dest`.
+    """
     safe_mkdir(dest.parent)
     url = f"/{settings.tmdb_image_size}{path_val}"
-    # reuse shared image client with base_url TMDB_IMG_BASE
-    resp = await _tmdb_image_client.get(url)
-    resp.raise_for_status()
-    async with aiofiles.open(dest, "wb") as f:
-        await f.write(resp.content)
-    logger.info("[TMDB] 🖼️ Downloaded image: %s", dest)
+
+    retries = 3
+    for attempt in range(1, retries + 1):
+        # ensure no more than N downloads at once
+        async with _download_semaphore:
+            try:
+                resp = await tmdb_image_client.get(url)
+                resp.raise_for_status()
+                async with aiofiles.open(dest, "wb") as f:
+                    await f.write(resp.content)
+                logger.info("[TMDB] 🖼️ Downloaded image: %s", dest)
+                return
+
+            except PoolTimeout:
+                if attempt < retries:
+                    wait = attempt  # 1s, then 2s, then ...
+                    logger.warning(
+                        "[TMDB] PoolTimeout on %s, retrying in %ds (attempt %d/%d)",
+                        url, wait, attempt, retries
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                else:
+                    logger.error(
+                        "[TMDB] PoolTimeout downloading %s after %d attempts",
+                        url, retries
+                    )
+
+            except HTTPError as exc:
+                logger.warning("[TMDB] HTTP error downloading %s: %s", url, exc)
+                return
+
+    # if we fall out of the loop, all retries failed
+    logger.error("[TMDB] Giving up downloading image: %s", url)
 
 T = TypeVar("T", Movie, TVShow, SeasonMeta, EpisodeMeta)
+
+_download_semaphore = asyncio.Semaphore(30)
 
 async def download_if_missing(
     log_tag: str,
@@ -293,13 +316,14 @@ async def download_if_missing(
     poster_path = stream.poster_path
     fanart_path = stream.backdrop_path
 
-    if poster_url and not await asyncio.to_thread(poster_path.exists):
-        logger.info(f"{log_tag} Downloading poster %s", poster_url)
-        await _download_image(poster_url, poster_path)
+    async with _download_semaphore:
+        if poster_url and not await asyncio.to_thread(poster_path.exists):
+            logger.info(f"{log_tag} Downloading poster %s", poster_url)
+            await _download_image(poster_url, poster_path)
 
-    if backdrop_url and not await asyncio.to_thread(fanart_path.exists):
-        logger.info(f"{log_tag} Downloading backdrop %s", backdrop_url)
-        await _download_image(backdrop_url, fanart_path)
+        if backdrop_url and not await asyncio.to_thread(fanart_path.exists):
+            logger.info(f"{log_tag} Downloading backdrop %s", backdrop_url)
+            await _download_image(backdrop_url, fanart_path)
 
     return True
 

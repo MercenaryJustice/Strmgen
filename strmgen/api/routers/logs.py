@@ -22,9 +22,13 @@ async def stream_logs():
     """
     logger.info("Client connected to SSE log stream")
     async def event_generator():
-        while True:
-            line = await log_queue.get()
-            yield f"data: {line}\n\n"
+       try:
+            while True:
+                line = await log_queue.get()
+                yield f"* {line}\n\n"
+       except asyncio.CancelledError:
+           logger.info("Client disconnected from SSE log stream")
+           return
     return EventSourceResponse(event_generator())
 
 
@@ -33,7 +37,7 @@ async def stream_status():
     """
     SSE endpoint: stream progress events for media processing.
     """
-    q: asyncio.Queue = asyncio.Queue()
+    q = asyncio.Queue(maxsize=100)
     progress_listeners.append(q)
 
     async def event_generator():

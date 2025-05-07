@@ -10,32 +10,10 @@ from ..core.auth import get_auth_headers
 from ..core.utils import setup_logger
 from ..core.fs_utils import safe_mkdir
 from ..core.models import DispatcharrStream, MediaType
+from ..core.httpclient import async_client
 
 logger = setup_logger(__name__)
 API_TIMEOUT = 10.0
-
-
-async def _request_with_refresh(
-    method: str,
-    url: str,
-    headers: Dict[str, str],
-    timeout: float = API_TIMEOUT,
-    **kwargs: Any
-) -> httpx.Response:
-    """
-    Async HTTP request with a single retry on 401/token_not_valid.
-    """
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.request(method, url, headers=headers, **kwargs)
-
-    if response.status_code == 401:
-        # Check if token is expired
-        logger.info("[AUTH] 🔄 Token expired, refreshing & retrying")
-        headers = await get_auth_headers(True)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.request(method, url, headers=headers, **kwargs)
-
-    return response
 
 
 async def fetch_streams_by_group_name(
@@ -57,7 +35,7 @@ async def fetch_streams_by_group_name(
             f"{settings.api_base}/api/channels/streams/"
             f"?page={page}&page_size=250&ordering=name&channel_group={enc}"
         )
-        resp = await _request_with_refresh("GET", url, headers)
+        resp = await _request("GET", url)
 
         if not resp.is_success:
             logger.error(
@@ -103,8 +81,8 @@ async def is_stream_alive(
         return True
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            head = await client.head(stream_url)
+        # reuse the shared HTTPX client instead of spinning up a new one
+        head = await async_client.head(stream_url, timeout=timeout)
         return head.is_success
     except Exception:
         return False
@@ -122,7 +100,7 @@ async def get_dispatcharr_stream_by_id(
     """
     url = f"{settings.api_base}/api/channels/streams/{stream_id}/"
     try:
-        resp = await _request_with_refresh("GET", url, headers)
+        resp = await _request("GET", url)
         if not resp.is_success:
             logger.error(
                 "[STRM] ❌ Error fetching stream #%d: %d %s",
@@ -178,9 +156,8 @@ async def fetch_groups() -> List[str]:
     """
     Async fetch of all channel-group names.
     """
-    headers = await get_auth_headers()
     url = f"{settings.api_base}/api/channels/streams/groups/"
-    resp = await _request_with_refresh("GET", url, headers)
+    resp = await _request("GET", url)
     resp.raise_for_status()
     return resp.json()
 
@@ -207,7 +184,7 @@ async def fetch_streams(
             "stream_type": stream_type,
             "ordering":    "name",
         }
-        resp = await _request_with_refresh("GET", url, hdrs, timeout=timeout, params=params)
+        resp = await _request("GET", url, timeout=timeout, params=params)
         resp.raise_for_status()
         body: Any = resp.json()
 
@@ -223,3 +200,19 @@ async def fetch_streams(
         page += 1
 
     return out
+
+
+async def _request(
+    method: str, url: str, timeout: float = API_TIMEOUT, **kwargs
+) -> httpx.Response:
+    # 1) grab a fresh header
+    headers = await get_auth_headers()
+    resp = await async_client.request(method, url, headers=headers, timeout=timeout, **kwargs)
+
+    # 2) if we got kicked back, force‑refresh & retry once
+    if resp.status_code == 401:
+        logger.info("[AUTH] 🔄 Token expired, refreshing & retrying")
+        headers = await get_auth_headers(expired=True)
+        resp = await async_client.request(method, url, headers=headers, timeout=timeout, **kwargs)
+
+    return resp

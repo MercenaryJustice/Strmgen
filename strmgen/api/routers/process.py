@@ -2,13 +2,13 @@ import asyncio
 import json
 
 from fastapi import APIRouter
-from fastapi.responses import StreamingResponse
 from strmgen.core.pipeline import (
     start_background_run,
     stop_background_run,
     is_running
 )
 from strmgen.api.schemas import StatusResponse
+from sse_starlette.sse import EventSourceResponse
 
 router = APIRouter(tags=["process"])
 
@@ -38,16 +38,14 @@ async def stream_status_sse():
     """
     async def event_generator():
         while True:
-            running = is_running()
-            yield f"data: {json.dumps({'running': running})}\n\n"
+            yield f"data: {json.dumps({'running': is_running()})}\n\n"
             await asyncio.sleep(1)
 
-    return StreamingResponse(
+    return EventSourceResponse(
         event_generator(),
-        media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no"    # disable nginx buffering if used
+            "X-Accel-Buffering": "no"
         }
     )
 

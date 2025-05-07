@@ -127,6 +127,72 @@
     </div>
   </div>
 
+  <!-- Request / Batch Settings -->
+  <div class="settings-group">
+    <h3>Request / Batch</h3>
+
+    <div class="setting-item">
+      <label for="batch_size">Batch Size</label>
+      <input
+        id="batch_size"
+        type="number"
+        name="batch_size"
+        min="1"
+        value="{{ config.batch_size }}"
+        required
+      />
+      <div class="setting-help">
+        Number of items to process per batch
+      </div>
+    </div>
+
+    <div class="setting-item">
+      <label for="batch_delay_seconds">Batch Delay (seconds)</label>
+      <input
+        id="batch_delay_seconds"
+        type="number"
+        name="batch_delay_seconds"
+        min="0"
+        value="{{ config.batch_delay_seconds }}"
+        required
+      />
+      <div class="setting-help">
+        Pause between each batch of requests
+      </div>
+    </div>
+
+    <div class="setting-item">
+      <label for="concurrent_requests">Concurrent Requests</label>
+      <input
+        id="concurrent_requests"
+        type="number"
+        name="concurrent_requests"
+        min="1"
+        value="{{ config.concurrent_requests }}"
+        required
+      />
+      <div class="setting-help">
+        How many TMDb requests to fire off in parallel
+      </div>
+    </div>
+
+    <div class="setting-item">
+      <label for="tmdb_rate_limit">TMDb Rate Limit (per minute)</label>
+      <input
+        id="tmdb_rate_limit"
+        type="number"
+        name="tmdb_rate_limit"
+        min="1"
+        value="{{ config.tmdb_rate_limit }}"
+        required
+      />
+      <div class="setting-help">
+        Max TMDb API calls allowed per minute
+      </div>
+    </div>
+  </div>  
+
+
   <!-- Filename Parsing -->
   <div class="settings-group">
     <h3>Filename Parsing</h3>
@@ -335,7 +401,13 @@
       document.querySelector('input[name="process_groups_24_7"]').checked      = !!cfg.process_groups_24_7;
       document.getElementById('groups_24_7_raw').value      = (cfg.groups_24_7||[]).join(',');
       document.getElementById('remove_strings_raw').value   = (cfg.remove_strings||[]).join(',');
-  
+
+      // … after your other cfg.* assignments …
+      document.getElementById('batch_size').value            = cfg.batch_size;
+      document.getElementById('batch_delay_seconds').value   = cfg.batch_delay_seconds;
+      document.getElementById('concurrent_requests').value   = cfg.concurrent_requests;
+      document.getElementById('tmdb_rate_limit').value       = cfg.tmdb_rate_limit;      
+
       // FILENAME PARSING
       document.getElementById('movie_year_regex').value      = cfg.movie_year_regex;
       document.getElementById('tv_series_episode_regex').value = cfg.tv_series_episode_regex;
@@ -375,7 +447,7 @@
     }
   }
   
-  document.addEventListener('DOMContentLoaded', loadSettings);
+  // document.addEventListener('DOMContentLoaded', loadSettings);
   
   document.getElementById('settingsForm').addEventListener('submit', async e => {
     e.preventDefault();
@@ -403,6 +475,12 @@
       remove_strings:         document.getElementById('remove_strings_raw').value.split(',').map(s=>s.trim()).filter(Boolean),
       movie_year_regex:       document.getElementById('movie_year_regex').value,
       tv_series_episode_regex:document.getElementById('tv_series_episode_regex').value,
+      // … existing keys …
+      batch_size:           Number(document.getElementById('batch_size').value),
+      batch_delay_seconds:  Number(document.getElementById('batch_delay_seconds').value),
+      concurrent_requests:  Number(document.getElementById('concurrent_requests').value),
+      tmdb_rate_limit:      Number(document.getElementById('tmdb_rate_limit').value),
+
       tmdb_api_key:           document.getElementById('tmdb_api_key').value,
       tmdb_language:          document.getElementById('tmdb_language').value,
       tmdb_download_images:   document.querySelector('input[name="tmdb_download_images"]').checked,

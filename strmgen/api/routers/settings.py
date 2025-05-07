@@ -40,6 +40,11 @@ class SettingsOut(BaseModel):
     groups_24_7: list[str]
     remove_strings: list[str]
 
+    batch_size: int 
+    batch_delay_seconds: float
+    concurrent_requests: int
+    tmdb_rate_limit: int 
+
     movie_year_regex: str
     tv_series_episode_regex: str
 
@@ -95,6 +100,11 @@ class SettingsIn(BaseModel):
     groups_24_7: list[str]
     remove_strings: list[str]
 
+    batch_size: int 
+    batch_delay_seconds: float
+    concurrent_requests: int
+    tmdb_rate_limit: int 
+
     movie_year_regex: str
     tv_series_episode_regex: str
 
@@ -149,6 +159,11 @@ class SettingsPatch(BaseModel):
     process_groups_24_7: Optional[bool]
     groups_24_7: Optional[list[str]]
     remove_strings: Optional[list[str]]
+
+    batch_size: Optional[int]
+    batch_delay_seconds: Optional[float]
+    concurrent_requests: Optional[int]
+    tmdb_rate_limit: Optional[int ]
 
     movie_year_regex: Optional[str]
     tv_series_episode_regex: Optional[str]

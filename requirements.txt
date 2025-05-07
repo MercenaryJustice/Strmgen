@@ -11,3 +11,7 @@ fastapi-utils>=0.2.2
 typing-inspect>=0.8.0
 aiofiles>=0.8.0
 httpx>=0.24.0
+more_itertools
+sse-starlette
+testcontainers
+asyncpg

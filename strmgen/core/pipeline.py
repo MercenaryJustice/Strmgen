@@ -11,6 +11,7 @@ import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.events import EVENT_JOB_EXECUTED, JobExecutionEvent
+from more_itertools import chunked
 
 from .config import settings, CONFIG_PATH, _json_cfg
 from .auth import get_auth_headers
@@ -20,6 +21,7 @@ from ..services.movies import process_movies
 from ..services.tv import process_tv
 from .logger import setup_logger
 from ..core.models import MediaType
+from ..api.routers.logs import notify_progress
 
 logger = setup_logger(__name__)
 
@@ -108,43 +110,53 @@ async def run_pipeline():
         # Helper to process one category of groups
         async def process_category(groups, proc_fn, media_type):
             for grp in groups:
-                if not is_running():
-                    logger.info("Pipeline was stopped before %s group %s", media_type, grp)
-                    return
-                # fetch streams in a thread (because your existing service is sync)
-                try:
-                    streams = await fetch_streams_by_group_name(grp, headers, media_type, True)
-                    count = len(streams)
-                    logger.info(
-                        "Processing %s group: %s containing %d streams",
-                        media_type, grp, count
-                    )                
-                except Exception:
-                    logger.exception("Error fetching streams for %s", grp)
-                    continue
+                if not is_running(): return
+                streams = await fetch_streams_by_group_name(grp, headers, media_type)
+                total = len(streams)
+                batches = list(chunked(streams, settings.batch_size))
 
-                if not is_running():
-                    logger.info("Pipeline stopped during %s group %s", media_type, grp)
-                    return
+                for idx, batch in enumerate(batches, start=1):
+                    logger.info("Starting batch %d/%d for group %s", idx, len(batches), grp)
+                    # process this batch (see next section)
+                    await _process_batch(batch, grp, proc_fn, media_type, headers)
+                    if not is_running():
+                        logger.info("Pipeline stopped during batch %d", idx)
+                        return
+                    # brief pause to respect rate limits and give UI breathing room
+                    await asyncio.sleep(settings.batch_delay_seconds)
+                    logger.info("[BATCH] Completed %d/%d batches for group %s", idx, len(batches), grp)
+                    notify_progress(media_type=media_type, group=grp, current=idx, total=len(batches))
 
-                try:
-                    await proc_fn(streams, grp, headers)
-                except Exception:
-                    logger.exception(
-                        "Error processing streams group %s; skipping", grp
-                    )
-                    continue
+
+        async def _process_batch(batch, grp, proc_fn, media_type, headers):
+            sem = asyncio.Semaphore(settings.concurrent_requests)  # e.g. 5
+            async def worker(idx: int, total: int, stream):
+                async with sem:
+                    if not is_running(): return
+                    try:
+                        await proc_fn([stream], grp, headers)
+                    except Exception:
+                        logger.exception("Stream %r failed in batch %d/%d for %s", stream, idx, total, grp)
+            total = len(batch)
+            await asyncio.gather(*(worker(i, total, s) for i, s in enumerate(batch, start=1)))
+            
+
 
         # 3) Execute categories, but isolate failures per category
-        for groups, fn, media_type in [
-            (matched_24_7, process_24_7, MediaType._24_7),
-            (matched_tv,    process_tv,    MediaType.TV),
-            (matched_movies, process_movies, MediaType.MOVIE),
-        ]:
+        await process_category(matched_24_7, process_24_7, MediaType._24_7)
+        await process_category(matched_movies, process_movies, MediaType.MOVIE)
+
+        # …then TV as one big group of streams, letting process_tv do its own batching
+        for grp in matched_tv:
+            if not is_running(): break
+            streams = await fetch_streams_by_group_name(grp, headers, MediaType.TV)
+            logger.info("TV group %r has %d total streams; delegating to process_tv()", grp, len(streams))
             try:
-                await process_category(groups, fn, media_type)
+                await process_tv(streams, grp, headers)
             except Exception:
-                logger.exception("Fatal error in %s category; continuing", name)
+                logger.exception("Fatal error in TV group %r; continuing", grp)
+
+
 
     except asyncio.CancelledError:
         logger.info("Pipeline task was cancelled")
@@ -159,7 +171,10 @@ async def run_pipeline():
         logger.info("Pipeline was cancelled")
     else:
         logger.info("Pipeline completed successfully")
-        
+
+
+
+
 
 # ─── Scheduler setup ────────────────────────────────────────────────────────
 def schedule_on_startup():

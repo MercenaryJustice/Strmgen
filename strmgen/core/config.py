@@ -35,6 +35,11 @@ class Settings(BaseModel):
     password:        str
     stream_base_url: str
 
+    db_user: str = "strmgen"
+    db_pass: str = "secret"
+    db_name: str = "strmgen"
+    postgres_dsn: str  | None = None
+
     # Runtime tokens (populated later)
     access:  Optional[str]
     refresh: Optional[str]
@@ -71,6 +76,11 @@ class Settings(BaseModel):
     tmdb_image_size:      str
     tmdb_create_not_found: bool
     check_tmdb_thresholds: bool
+
+    batch_size: int                = 20
+    batch_delay_seconds: float     = 2.0
+    concurrent_requests: int       = 5
+    tmdb_rate_limit: int           = 40
 
     minimum_year:           int
     minimum_tmdb_rating:    float

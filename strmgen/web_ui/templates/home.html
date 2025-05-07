@@ -9,6 +9,9 @@
     <button id="run-btn" class="run-button">Run Now</button>
     <button id="stop-btn" class="stop-button" style="display:none; margin-left:10px;">Stop</button>
     <div id="run-msg" class="setting-help" style="margin-top:10px;"></div>
+    <!-- progress bar for batch progress -->
+    <progress id="batch-progress" value="0" max="0"
+              style="width:100%; margin-top:1em;"></progress>
     <div id="run-log" class="run-log" style="margin-top:1em; max-height:200px; overflow-y:auto; background:#f9f9f9; padding:0.5em; border:1px solid #ddd;"></div>
   </div>
 
@@ -35,22 +38,40 @@
 
 </div>
 
-<script>
+<script defer>
 document.addEventListener('DOMContentLoaded', () => {
-  // ─── Run/Stop UI via SSE ───────────────────────────────────────────────
+  // ─── Clear‑on‑Run and Progress SSE ────────────────────────────────────
+  const progressBar  = document.getElementById("batch-progress");
+  const logContainer = document.getElementById("run-log");
+  function appendLogEntry(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    logContainer.appendChild(div);
+  }
+
+  // ─── Run/Stop UI via initial HTTP + SSE ──────────────────────────────
   const runBtn  = document.getElementById('run-btn');
   const stopBtn = document.getElementById('stop-btn');
   const runMsg  = document.getElementById('run-msg');
 
   let wasRunning     = false;
-  // rehydrate any recent Run click for grace period
   let runRequestedAt = Number(localStorage.getItem('runRequestedAt')) || 0;
 
-  // Open SSE connection for real-time status
+  // 1) Seed initial state without blocking render
+  fetch('/api/v1/process/status')
+    .then(r => r.json())
+    .then(({ running }) => {
+      runBtn.style.display  = running ? 'none' : 'inline-block';
+      stopBtn.style.display = running ? 'inline-block' : 'none';
+    })
+    .catch(() => {
+      console.warn('Status seed failed—assuming stopped');
+      runBtn.style.display  = 'inline-block';
+      stopBtn.style.display = 'none';
+    });
+
+  // 2) Live updates
   const statusSource = new EventSource('/api/v1/process/stream/status');
-  statusSource.addEventListener('open', () =>
-    console.log('Status SSE connected')
-  );
   statusSource.addEventListener('message', event => {
     const { running } = JSON.parse(event.data);
     const now    = Date.now();
@@ -60,6 +81,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (wasRunning && !effectiveRunning) {
       runMsg.textContent = 'Pipeline completed successfully';
+      progressBar.value = 0;
+      progressBar.max   = 0;
     }
 
     runBtn.disabled       = effectiveRunning;
@@ -67,9 +90,7 @@ document.addEventListener('DOMContentLoaded', () => {
     stopBtn.style.display = effectiveRunning ? 'inline-block' : 'none';
     wasRunning            = effectiveRunning;
 
-    // clear grace marker once expired
-    if (!inGrace && runRequestedAt) {
-      localStorage.removeItem('runRequestedAt');
+    if (!inGrace) {
       runRequestedAt = 0;
     }
   });
@@ -83,6 +104,9 @@ document.addEventListener('DOMContentLoaded', () => {
   runBtn.addEventListener('click', async () => {
     runBtn.disabled    = true;
     runMsg.textContent = 'Starting…';
+    logContainer.innerHTML = "";
+    progressBar.value   = 0;
+    progressBar.max     = 0;
     try {
       const res = await fetch('/api/v1/process/run', { method: 'POST' });
       if (!res.ok) throw new Error(await res.text());
@@ -101,14 +125,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ─── Stop button ──────────────────────────────────────────────────────────
   stopBtn.addEventListener('click', async () => {
-    stopBtn.disabled    = true;
-    runMsg.textContent  = 'Stopping…';
+    stopBtn.disabled   = true;
+    runMsg.textContent = 'Stopping…';
     try {
       const res = await fetch('/api/v1/process/stop', { method: 'POST' });
       if (!res.ok) throw new Error(await res.text());
       runMsg.textContent = 'Stop signal sent';
-      localStorage.removeItem('runRequestedAt');
-      runRequestedAt     = 0;
+      appendLogEntry('--- stopped by user ---');
     } catch(err) {
       console.error('Stop error', err);
       runMsg.textContent = 'Error stopping';
@@ -118,27 +141,30 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ─── Processing Log SSE ──────────────────────────────────────────────
-  const logContainer = document.getElementById("run-log");
-  const logSource = new EventSource("/api/v1/logs/stream/logs");
-
-  logSource.addEventListener("message", e => {
-    // append each log line
-    const line = document.createElement("div");
+  const logSource = new EventSource('/api/v1/logs/stream/logs');
+  logSource.addEventListener('message', e => {
+    const line = document.createElement('div');
     line.textContent = e.data;
     logContainer.appendChild(line);
-    // auto‑scroll to bottom
+    if (logContainer.children.length > 1000) {
+      for (let i = 0; i < 100; i++) logContainer.removeChild(logContainer.firstChild);
+    }
     logContainer.scrollTop = logContainer.scrollHeight;
   });
-
-  logSource.addEventListener("error", () => {
+  logSource.addEventListener('error', () => {
     logSource.close();
-    const err = document.createElement("div");
-    err.textContent = "--- log stream closed ---";
-    err.style.opacity = "0.6";
-    logContainer.appendChild(err);
-  });  
+    appendLogEntry('--- log stream closed ---');
+  });
 
-  // ─── Scheduler UI Logic ───────────────────────────────────────────────────
+  // ─── Progress events ───────────────────────────────────────────────────
+  const progressSource = new EventSource('/api/v1/logs/status');
+  progressSource.addEventListener('progress', ev => {
+    const data = JSON.parse(ev.data);
+    progressBar.max   = data.total;
+    progressBar.value = data.current;
+  });
+
+  // ─── Scheduler UI Logic ─────────────────────────────────────────────────
   const hourInp   = document.getElementById('sched-hour');
   const minInp    = document.getElementById('sched-minute');
   const saveBtn   = document.getElementById('save-schedule');
@@ -146,7 +172,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const lastRunEl = document.getElementById('last-run');
   const schedMsg  = document.getElementById('sched-msg');
 
-  async function loadSchedule(){
+  async function loadSchedule() {
     try {
       const res = await fetch('/api/v1/schedule/schedule');
       if (!res.ok) throw new Error(await res.text());

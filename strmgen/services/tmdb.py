@@ -1,6 +1,6 @@
-# strmgen/services/tmdb.py
-
 import asyncio
+import random
+from aiolimiter import AsyncLimiter
 from difflib import SequenceMatcher
 from typing import Optional, Dict, List, Any, TypeVar
 from pathlib import Path
@@ -15,9 +15,18 @@ from ..core.models import Movie, TVShow, SeasonMeta, EpisodeMeta, DispatcharrStr
 
 logger = setup_logger(__name__)
 
+
 # Constants
 TMDB_BASE = "https://api.themoviedb.org/3"
 TMDB_IMG_BASE = "https://image.tmdb.org/t/p"
+
+
+# Shared HTTP Clients
+_tmdb_client = httpx.AsyncClient(base_url=TMDB_BASE, timeout=10.0)
+_tmdb_image_client = httpx.AsyncClient(base_url=TMDB_IMG_BASE, timeout=10.0)
+# Rate limiter parameterized by settings
+tmdb_limiter = AsyncLimiter(max_rate=settings.tmdb_rate_limit, time_period=10)
+
 
 # Caches
 _tv_genre_map: Dict[int, str] = {}
@@ -29,27 +38,41 @@ async def init_tv_genre_map() -> None:
     Populate the global _tv_genre_map by calling the TMDb
     /genre/tv/list endpoint and extracting {id: name}.
     """
-    # 1) fetch the raw payload (which looks like {"genres":[{"id":10759,"name":"Action"},{"id":16,"name":"Animation"}, …]})
     payload: Dict[str, Any] = await _get("/genre/tv/list", {})
-
-    # 2) extract & remap into Dict[int,str]
     genres = payload.get("genres", [])
     for g in genres:
-        # ensure we have both an int id and a string name
         gid  = int(g.get("id", 0))
         name = str(g.get("name", ""))
         _tv_genre_map[gid] = name
 
-       
-
 
 # ─── Internal HTTP helper ─────────────────────────────────────────────────────
-async def _get(endpoint: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    params = {**params, "api_key": settings.tmdb_api_key, "language": settings.tmdb_language}
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(f"{TMDB_BASE}{endpoint}", params=params)
-        resp.raise_for_status()
-        return resp.json()
+async def _get(endpoint: str, params: Dict[str, Any]) -> Any:
+    backoff = 1
+    for attempt in range(3):
+        try:
+            async with tmdb_limiter:
+                resp = await _tmdb_client.get(endpoint, params={**params, "api_key": settings.tmdb_api_key})
+            if resp.status_code == 429:
+                logger.warning("[TMDB] 429 received for %s, backing off %ds", endpoint, backoff)
+                await asyncio.sleep(backoff + random.random())
+                backoff = min(backoff * 2, 8)
+                continue
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 429:
+                logger.warning("[TMDB] Rate limit hit on attempt %d for %s", attempt + 1, endpoint)
+                await asyncio.sleep(backoff + random.random())
+                backoff = min(backoff * 2, 8)
+                continue
+            raise
+        except httpx.RequestError as exc:
+            logger.error("[TMDB] Request failed for %s: %s", endpoint, exc)
+            await asyncio.sleep(backoff + random.random())
+            backoff = min(backoff*2, 8)
+    logger.error("[TMDB] ❌ rate-limit retry failed for %s after 3 attempts", endpoint)
+    return None
 
 
 # ─── TMDb search / details ───────────────────────────────────────────────────
@@ -69,15 +92,9 @@ async def fetch_movie_details(
     year:  Optional[int] = None,
     tmdb_id: Optional[int] = None
 ) -> Optional[Movie]:
-    """
-    Single entry point:
-      • If tmdb_id is provided, fetch detail directly (with all append sections).
-      • Otherwise, search by title/year, pick best candidate, then fetch detail.
-    """
     if not settings.tmdb_api_key:
         return None
 
-    # define once: which extra sections to include on detail fetch
     append_sections = [
         "alternative_titles","changes","credits","external_ids",
         "images","keywords","lists","recommendations",
@@ -87,11 +104,8 @@ async def fetch_movie_details(
     append_to = {"append_to_response": ",".join(append_sections)}
 
     try:
-        # 1) Direct lookup path
         if tmdb_id:
             detail = await _get(f"/movie/{tmdb_id}", append_to)
-
-        # 2) Search + scoring path
         else:
             logger.info("[TMDB] 🔍 Searching movie: %s (%s)", title, year)
             params: Dict[str, Any] = {"query": title or ""}
@@ -103,7 +117,6 @@ async def fetch_movie_details(
             if not results:
                 return None
 
-            # build Movie candidates with detail fetch
             candidates: List[Movie] = []
             for r in results:
                 mid = r.get("id")
@@ -145,7 +158,6 @@ async def fetch_movie_details(
             if not candidates:
                 return None
 
-            # scoring: name similarity + year proximity
             target = clean_name(title or "")
             def score(m: Movie) -> float:
                 sim = SequenceMatcher(None, clean_name(m.title), target).ratio()
@@ -156,16 +168,15 @@ async def fetch_movie_details(
                 return 0.7 * sim + 0.3 * year_score
 
             best: Movie = await asyncio.to_thread(max, candidates, key=score)
-            detail = best.raw  # use its raw dict for final mapping
+            detail = best.raw
 
-        # 3) Final Movie construction from `detail`
         return Movie(
             id=detail.get("id", 0),
             title=detail.get("title", ""),
             original_title=detail.get("original_title", ""),
             overview=detail.get("overview", ""),
             poster_path=detail.get("poster_path"),
-            backdrop_path=detail.get("backdrop_path"),
+            backdrop_path=detail.get("backdrop_path", ""),
             release_date=detail.get("release_date", ""),
             adult=detail.get("adult", False),
             original_language=detail.get("original_language", ""),
@@ -209,41 +220,27 @@ async def fetch_tv_details(
     query: Optional[str]  = None,
     tv_id: Optional[int]  = None
 ) -> Optional[TVShow]:
-    """
-    Fetch a TV show by tmdb_id (if provided), otherwise
-    search on `query` and pick the best match.
-    """
     if not settings.tmdb_api_key:
         return None
 
     try:
-        # Always append credits
         append = {"append_to_response": "credits"}
-
-        # 1) Direct lookup if tv_id given
         if tv_id:
             detail = await _get(f"/tv/{tv_id}", append)
-
-        # 2) Search + best-match otherwise
         else:
             if not query:
                 return None
-
             logger.info("[TMDB] 🔍 Searching TV: %s", query)
             data = await _get("/search/tv", {"query": query})
             results: List[Dict[str, Any]] = data.get("results", [])
             if not results:
                 return None
-
-            # pick best by whatever logic you already have
             best = _get_best_match_tv(results, query)
             if not best or not best.get("id"):
                 return None
-
             tv_id = best["id"]
             detail = await _get(f"/tv/{tv_id}", append)
 
-        # 3) Map to your TVShow model
         return TVShow(
             id=detail.get("id", 0),
             channel_group_name="",
@@ -251,7 +248,7 @@ async def fetch_tv_details(
             original_name=detail.get("original_name", ""),
             overview=detail.get("overview", ""),
             poster_path=detail.get("poster_path"),
-            backdrop_path=detail.get("backdrop_path"),
+            backdrop_path=detail.get("backdrop_path", None),
             media_type=detail.get("media_type", ""),
             adult=detail.get("adult", False),
             original_language=detail.get("original_language", ""),
@@ -271,37 +268,31 @@ async def fetch_tv_details(
 
 async def _download_image(path_val: str, dest: Path) -> None:
     safe_mkdir(dest.parent)
-    url = f"{TMDB_IMG_BASE}/{settings.tmdb_image_size}{path_val}"
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.get(url)
-        r.raise_for_status()
-        data = r.content
+    url = f"/{settings.tmdb_image_size}{path_val}"
+    # reuse shared image client with base_url TMDB_IMG_BASE
+    resp = await _tmdb_image_client.get(url)
+    resp.raise_for_status()
     async with aiofiles.open(dest, "wb") as f:
-        await f.write(data)
+        await f.write(resp.content)
     logger.info("[TMDB] 🖼️ Downloaded image: %s", dest)
 
 T = TypeVar("T", Movie, TVShow, SeasonMeta, EpisodeMeta)
-
 
 async def download_if_missing(
     log_tag: str,
     stream: DispatcharrStream,
     tmdb: T,
 ) -> bool:
-    # 1) pick the correct remote‐URL field
     if isinstance(tmdb, EpisodeMeta):
-        poster_url   = tmdb.still_path      # episodes use `still_path`
+        poster_url   = tmdb.still_path
         backdrop_url = None
     else:
-        # Movie, TVShow, SeasonMeta all have `poster_path` & `backdrop_path`
         poster_url   = getattr(tmdb, "poster_path", None)
         backdrop_url = getattr(tmdb, "backdrop_path", None)
 
-    # 2) your DispatcharrStream already knows where these belong on disk:
     poster_path = stream.poster_path
     fanart_path = stream.backdrop_path
 
-    # 3) download if URL exists and file is missing
     if poster_url and not await asyncio.to_thread(poster_path.exists):
         logger.info(f"{log_tag} Downloading poster %s", poster_url)
         await _download_image(poster_url, poster_path)

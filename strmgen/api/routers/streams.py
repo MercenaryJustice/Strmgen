@@ -37,7 +37,7 @@ async def skipped_streams(stream_type: str | None = Query(None)):
     List all skipped streams, optionally filtered by stream_type.
     """
     # Always return the list directly to match response_model=List[SkippedStream]
-    rows = list_skipped(stream_type) if stream_type else list_skipped(None)
+    rows = await list_skipped(stream_type) if stream_type else await list_skipped(None)
     return rows
 
 @router.post("/skipped-streams/{stream_type}/{tmdb_id}/reprocess")
@@ -51,7 +51,7 @@ async def api_set_reprocess(
     """
     if "reprocess" not in payload:
         raise HTTPException(400, "Missing 'reprocess' in body")
-    update_skipped_reprocess(tmdb_id, stream_type, bool(payload["reprocess"]))
+    await update_skipped_reprocess(tmdb_id, stream_type, bool(payload["reprocess"]))
 
     if bool(payload["reprocess"]):
         # Reprocess the stream

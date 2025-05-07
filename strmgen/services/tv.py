@@ -5,6 +5,7 @@ import logging
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Optional, List
+from more_itertools import chunked
 
 from ..core.state import mark_skipped, is_skipped, SkippedStream
 from ..core.config import settings
@@ -85,7 +86,7 @@ async def process_tv(
         # 3b) Threshold check once per show
         passed = await asyncio.to_thread(filter_by_threshold, show_name, mshow.raw)
         if not passed:
-            await asyncio.to_thread(mark_skipped, "TV", group, mshow, sample_stream)
+            await mark_skipped("TV", group, mshow, sample_stream)
             _skipped.add(show_name)
             logger.info(f"{TAG} 🚫 Threshold filter failed for: {show_name}")
             continue
@@ -110,43 +111,42 @@ async def process_tv(
             # schedule season poster download
             asyncio.create_task(download_if_missing(TAG, eps[0], season_meta))
 
-            # 5) Process each episode
-            for stream in eps:
-                try:
-                    # per‐episode skip checks
-                    if stream.name in _skipped:
-                        continue
-                    if not reprocess and await asyncio.to_thread(is_skipped, stream.stream_type, stream.id):
-                        logger.info(f"{TAG} ⏭️ Skipped episode: {stream.name}")
-                        _skipped.add(stream.name)
-                        continue
+            # 5) Process episodes in batches
+            batches = list(chunked(eps, settings.batch_size))
+            for batch_idx, batch in enumerate(batches, start=1):
+                logger.info(f"{TAG} 🔸 Processing batch {batch_idx}/{len(batches)} for {show_name!r} S{season_num:02d}")
 
-                    logger.info(
-                        f"{TAG} 📺 Episode: {show_name} S{season_num:02d}E{stream.episode:02d}"
-                    )
+                # limit concurrency within this batch
+                sem = asyncio.Semaphore(settings.concurrent_requests)
 
-                    # grab the pre‑built EpisodeMeta
-                    ep_num = stream.episode  # type: ignore[assignment]
-                    episode_meta = season_meta.episode_map.get(ep_num)
-                    if not episode_meta:
-                        logger.warning(
-                            f"{TAG} ❌ Missing ep {ep_num:02d} in {show_name!r} S{season_num:02d}"
-                        )
-                        continue
+                async def _process_one(stream: DispatcharrStream):
+                    async with sem:
+                        # — your existing per-episode skip & write logic —
+                        if stream.name in _skipped:
+                            return
+                        if not reprocess and await is_skipped(stream.stream_type.name, stream.id):
+                            _skipped.add(stream.name)
+                            return
 
-                    # — Write .strm file —
-                    episode_meta.strm_path.parent.mkdir(parents=True, exist_ok=True)
-                    episode_meta.strm_path.write_text(stream.proxy_url, encoding="utf-8")
+                        # write .strm
+                        episode_meta = season_meta.episode_map.get(stream.episode)  # type: ignore
+                        if not episode_meta: return
+                        episode_meta.strm_path.parent.mkdir(parents=True, exist_ok=True)
+                        episode_meta.strm_path.write_text(stream.proxy_url, encoding="utf-8")
 
-                    # — Episode .nfo & still image —
-                    if settings.write_nfo:
-                        await asyncio.to_thread(write_episode_nfo, stream, episode_meta)
-                        if episode_meta.still_path:
-                            asyncio.create_task(download_if_missing(TAG, stream, episode_meta))
+                        if settings.write_nfo:
+                            await asyncio.to_thread(write_episode_nfo, stream, episode_meta)
+                            if episode_meta.still_path:
+                                asyncio.create_task(download_if_missing(TAG, stream, episode_meta))
 
-                except Exception as e:
-                    logger.error(f"{TAG} ❌ Error processing {stream.name}: {e}", exc_info=True)
-                    continue
+                # fire off the batch
+                await asyncio.gather(*[_process_one(s) for s in batch])
+
+                # pause between batches
+                await asyncio.sleep(settings.batch_delay_seconds)
+
+
+
 
         logger.info(f"{TAG} ✅ Finished show {show_name!r}")
 

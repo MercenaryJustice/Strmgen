@@ -2,6 +2,7 @@
 
 import os
 import re
+import json
 import asyncio
 from typing import Optional, List, Pattern
 from pathlib import Path
@@ -10,6 +11,7 @@ import logging
 import aiofiles
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from sse_starlette.sse import EventSourceResponse
 
 from strmgen.core.logger import LOG_PATH, setup_logger
 from strmgen.api.schemas import LogsResponse, ClearResponse
@@ -18,6 +20,7 @@ router = APIRouter(tags=["logs"])
 _log_queue: "asyncio.Queue[str]" = asyncio.Queue()
 logger = setup_logger("LOGS")
 
+progress_listeners: list[asyncio.Queue] = []
 
 class SSELogHandler(logging.Handler):
     """A logging handler that pushes formatted records into an asyncio queue."""
@@ -28,6 +31,18 @@ class SSELogHandler(logging.Handler):
         except Exception:
             # drop on any failure
             pass
+
+def notify_progress(media_type, group, current, total):
+    payload = json.dumps({
+        "type": "progress",
+        "media_type": media_type.value,
+        "group": group,
+        "current": current,
+        "total": total
+    })
+    for q in progress_listeners:
+        q.put_nowait(payload)
+
 
 async def tail_f(path: Path):
     """
@@ -152,6 +167,21 @@ async def stream_logs():
             line = await _log_queue.get()
             yield f"data: {line}\n\n"
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.get("/status")
+async def stream_status():
+    q: asyncio.Queue = asyncio.Queue()
+    progress_listeners.append(q)
+    async def event_generator():
+        try:
+            while True:
+                data = await q.get()
+                yield f"event: progress\ndata: {data}\n\n"
+        finally:
+            progress_listeners.remove(q)
+    return EventSourceResponse(event_generator())
+
 
 def setup_sse_logging():
     handler = SSELogHandler()

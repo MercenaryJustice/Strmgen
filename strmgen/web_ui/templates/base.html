@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>STRMGen UI</title>
+  <link rel="stylesheet" href="/static/css/style.css"/>
+  <link rel="icon" type="image/png" href="/static/img/strmgen_icon.png"/>
+  <link rel="shortcut icon" type="image/png" href="/static/img/strmgen_icon.png"/>
+</head>
+<body class="light-theme">
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="logo-container">
+        <img src="/static/img/strmgen_icon.png" alt="STRMGen" class="logo"/>
+        <h1>STRMGen</h1>
+      </div>
+      <nav class="nav-menu">
+        <a href="/" class="nav-item{% if request.url.path=='/' %} active{% endif %}">Home</a>
+        <a href="/settings" class="nav-item{% if request.url.path=='/settings' %} active{% endif %}">Settings</a>
+        <a href="/logs" class="nav-item{% if request.url.path=='/logs' %} active{% endif %}">Logs</a>
+        <a href="/skipped" class="nav-item{% if request.url.path=='/skipped' %} active{% endif %}">Skipped</a>
+      </nav>
+    </aside>
+
+    <div class="main-content">
+      <header class="top-bar">
+        <span class="page-title">{{ title if title else "STRMGen" }}</span>
+        <button id="theme-toggle" class="theme-toggle" aria-label="Toggle dark mode">🌙</button>
+      </header>
+      <section class="content-section active">
+        {% block content %}{% endblock %}
+      </section>
+    </div>
+  </div>
+
+  <script>
+  (function() {
+    const body = document.body;
+    const toggle = document.getElementById('theme-toggle');
+    // 1. Load saved theme or system preference
+    const saved = localStorage.getItem('theme');
+    if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      body.classList.replace('light-theme','dark-theme');
+      toggle.textContent = '☀️';
+    }
+
+    // 2. Toggle on click
+    toggle.addEventListener('click', () => {
+      if (body.classList.contains('light-theme')) {
+        body.classList.replace('light-theme','dark-theme');
+        toggle.textContent = '☀️';
+        localStorage.setItem('theme','dark');
+        window.dispatchEvent(new CustomEvent('themeChanged',{detail:'dark'}));
+      } else {
+        body.classList.replace('dark-theme','light-theme');
+        toggle.textContent = '🌙';
+        localStorage.setItem('theme','light');
+        window.dispatchEvent(new CustomEvent('themeChanged',{detail:'light'}));
+      }
+    });
+  })();
+  </script>
+</body>
+</html>

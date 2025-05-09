@@ -1,0 +1,49 @@
+services:
+  strmgen:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mitch91175/strmgen:latest
+    container_name: strmgen
+
+    environment:
+      API_BASE:       "http://192.168.86.33:9191"
+      TOKEN_URL:      "/api/accounts/token/"
+      USERNAME:       ""
+      PASSWORD:       ""
+      STREAM_BASE_URL: "/proxy/ts/stream/"
+      SKIP_STREAM_CHECK:       "true"
+      UPDATE_STREAM_LINK:      "false"
+      ONLY_UPDATED_STREAMS:    "true"
+      OUTPUT_ROOT:   "/output"
+      CLEAN_OUTPUT_DIR:        "false"
+      PROCESS_MOVIES_GROUPS:   "true"
+      MOVIES_GROUPS:           '["Movies-*","Movie-*"]'
+      PROCESS_TV_SERIES_GROUPS: "true"
+      TV_SERIES_GROUPS:        '["Series-*"]'
+      PROCESS_GROUPS_24_7:     "false"
+      GROUPS_24_7:             '["24/7*"]'
+      TMDB_API_KEY:            ""
+      TMDB_LANGUAGE:           "en-US"
+      TMDB_IMAGE_SIZE:         "original"
+      TMDB_DOWNLOAD_IMAGES:    "true"
+      TMDB_CREATE_NOT_FOUND:   "false"
+      CHECK_TMDB_THRESHOLDS:   "true"
+      MINIMUM_YEAR:            "1994"
+      MINIMUM_TMDB_RATING:     "2"
+      MINIMUM_TMDB_VOTES:      "1"
+      MINIMUM_TMDB_POPULARITY: "3.0"
+      WRITE_NFO:               "true"
+      WRITE_NFO_ONLY_IF_NOT_EXISTS: "true"
+      OPENSUBTITLES_DOWNLOAD:  "false"
+      OPENSUBTITLES_APP_NAME:  ""
+      OPENSUBTITLES_API_KEY:   ""
+      OPENSUBTITLES_USERNAME:  ""
+      OPENSUBTITLES_PASSWORD:  ""
+      SKIP_CACHE_PATH:         ""
+      
+    # Only mount the files & folders you actually need persisted
+    volumes:
+      - /mnt/user/data/media/vod:/output:rw
+
+    # The Dockerfile’s ENTRYPOINT will run `python -m strmgen.main`

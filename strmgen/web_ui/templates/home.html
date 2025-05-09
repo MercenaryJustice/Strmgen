@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  /* make the run message text dark so it's legible */
+  #run-log {
+    /* use your theme’s primary text color; #333 is a good fallback */
+    color: #333 !important;
+  }
+</style><div class="dashboard-grid">
+
+  <!-- Run/Stop Card -->
+  <div class="card welcome-card">
+    <h2><i class="fas fa-play-circle"></i> Run Processing</h2>
+    <p>Click below to start or stop your pipeline.</p>
+    <button id="run-btn" class="run-button">Run Now</button>
+    <button id="stop-btn" class="stop-button" style="display:none; margin-left:10px;">Stop</button>
+    <div id="run-msg" class="setting-help" style="margin-top:10px;"></div>
+    <!-- progress bar for batch progress -->
+    <progress id="batch-progress" value="0" max="0"
+              style="width:100%; margin-top:1em;"></progress>
+    <div id="run-log" class="run-log" style="margin-top:1em; max-height:200px; overflow-y:auto; background:#f9f9f9; padding:0.5em; border:1px solid #ddd;"></div>
+  </div>
+
+  <!-- Scheduled Task Card -->
+  <div class="card">
+    <h2><i class="fas fa-calendar-alt"></i> Scheduled Task</h2>
+    <div class="setting-item">
+      <label for="sched-hour">Hour (0–23):</label>
+      <input id="sched-hour" type="number" min="0" max="23" />
+    </div>
+    <div class="setting-item">
+      <label for="sched-minute">Minute (0–59):</label>
+      <input id="sched-minute" type="number" min="0" max="59" />
+    </div>
+    <div class="settings-actions" style="margin-top:10px;">
+      <button id="save-schedule" class="save-button">Save Schedule</button>
+    </div>
+    <div class="setting-help" style="margin-top:10px;">
+      Next run: <span id="next-run">—</span><br/>
+      Last run: <span id="last-run">—</span>
+    </div>
+    <div id="sched-msg" class="setting-help" style="margin-top:5px;"></div>
+  </div>
+
+</div>
+
+<script defer>
+document.addEventListener('DOMContentLoaded', () => {
+  // ─── Clear‑on‑Run and Progress SSE ────────────────────────────────────
+  const progressBar  = document.getElementById("batch-progress");
+  const logContainer = document.getElementById("run-log");
+  function appendLogEntry(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    logContainer.appendChild(div);
+  }
+
+  // ─── Run/Stop UI via initial HTTP + SSE ──────────────────────────────
+  const runBtn  = document.getElementById('run-btn');
+  const stopBtn = document.getElementById('stop-btn');
+  const runMsg  = document.getElementById('run-msg');
+
+  let wasRunning     = false;
+  let runRequestedAt = Number(localStorage.getItem('runRequestedAt')) || 0;
+
+  // 1) Seed initial state without blocking render
+  fetch('{{ request.url_for("process.get_status") }}')
+    .then(r => r.json())
+    .then(({ running }) => {
+      runBtn.style.display  = running ? 'none' : 'inline-block';
+      stopBtn.style.display = running ? 'inline-block' : 'none';
+    })
+    .catch(() => {
+      console.warn('Status seed failed—assuming stopped');
+      runBtn.style.display  = 'inline-block';
+      stopBtn.style.display = 'none';
+    });
+
+  // 2) Live updates
+  const statusSource = new EventSource('{{ request.url_for("process.stream_status") }}');
+  statusSource.addEventListener('message', event => {
+    const { running } = JSON.parse(event.data);
+
+    // if the pipeline just transitioned from running→stopped...
+    if (wasRunning && !running) {
+      runMsg.textContent = 'Pipeline completed successfully';
+      progressBar.value = 0;
+      progressBar.max   = 0;
+      runBtn.style.display  = 'inline-block';
+      stopBtn.style.display = 'none';
+    }
+
+    runBtn.disabled       = running;
+    runBtn.style.display  = running ? 'none' : 'inline-block';
+    stopBtn.style.display = running ? 'inline-block' : 'none';
+    wasRunning            = running;    
+  });
+
+  statusSource.addEventListener('error', e => {
+    console.error('Status SSE error:', e);
+    statusSource.close();
+    appendLogEntry('--- live status stream closed ---');
+  });
+
+  // ─── Run button ───────────────────────────────────────────────────────────
+  runBtn.addEventListener('click', async () => {
+    runBtn.disabled    = true;
+    runMsg.textContent = 'Starting…';
+    logContainer.innerHTML = "";
+    progressBar.value   = 0;
+    progressBar.max     = 0;
+    try {
+      const res = await fetch('{{ request.url_for("process.run") }}', { method: 'POST' });
+      if (!res.ok) throw new Error(await res.text());
+      runMsg.textContent    = 'Pipeline started';
+      runRequestedAt       = Date.now();
+      localStorage.setItem('runRequestedAt', runRequestedAt);
+      runBtn.style.display  = 'none';
+      stopBtn.style.display = 'inline-block';
+      wasRunning            = true;
+    } catch(err) {
+      console.error('Run error', err);
+      runMsg.textContent = 'Error starting';
+      runBtn.disabled    = false;
+    }
+  });
+
+  // ─── Stop button ──────────────────────────────────────────────────────────
+  stopBtn.addEventListener('click', async () => {
+    stopBtn.disabled   = true;
+    runMsg.textContent = 'Stopping…';
+    try {
+      const res = await fetch('{{ request.url_for("process.stop") }}', { method: 'POST' });
+      if (!res.ok) throw new Error(await res.text());
+      runMsg.textContent = 'Stop signal sent';
+      appendLogEntry('--- stopped by user ---');
+      // Optional: immediately check status for a snappier UI
+      const status = await fetch('{{ request.url_for("process.get_status") }}').then(r => r.json());
+      if (!status.running) {
+        runBtn.style.display  = 'inline-block';
+        stopBtn.style.display = 'none';
+      }      
+    } catch(err) {
+      console.error('Stop error', err);
+      runMsg.textContent = 'Error stopping';
+    } finally {
+      stopBtn.disabled = false;
+    }
+  });
+
+  // ─── Processing Log SSE ──────────────────────────────────────────────
+  const logSource = new EventSource('{{ request.url_for("logs.stream_logs") }}');
+  logSource.addEventListener('message', e => {
+    const line = document.createElement('div');
+    line.textContent = e.data;
+    logContainer.appendChild(line);
+    if (logContainer.children.length > 1000) {
+      for (let i = 0; i < 100; i++) logContainer.removeChild(logContainer.firstChild);
+    }
+    logContainer.scrollTop = logContainer.scrollHeight;
+  });
+  logSource.addEventListener('error', () => {
+    logSource.close();
+    appendLogEntry('--- log stream closed ---');
+  });
+
+  // ─── Progress events ───────────────────────────────────────────────────
+  const progressSource = new EventSource('{{ request.url_for("logs.get_status") }}');
+  progressSource.addEventListener('progress', ev => {
+    const data = JSON.parse(ev.data);
+    progressBar.max   = data.total;
+    progressBar.value = data.current;
+  });
+
+  // ─── Scheduler UI Logic ─────────────────────────────────────────────────
+  const hourInp   = document.getElementById('sched-hour');
+  const minInp    = document.getElementById('sched-minute');
+  const saveBtn   = document.getElementById('save-schedule');
+  const nextRunEl = document.getElementById('next-run');
+  const lastRunEl = document.getElementById('last-run');
+  const schedMsg  = document.getElementById('sched-msg');
+
+  async function loadSchedule() {
+    try {
+      const res = await fetch('{{ request.url_for("schedule.get_schedule") }}', { method: 'GET' });
+      if (!res.ok) throw new Error(await res.text());
+      const { enabled, hour, minute, next_run, last_run } = await res.json();
+      if (!enabled) {
+        document.querySelectorAll('.card')[1].style.display = 'none';
+        return;
+      }
+      hourInp.value         = hour;
+      minInp.value          = minute;
+      nextRunEl.textContent = next_run ? new Date(next_run).toLocaleString() : '—';
+      lastRunEl.textContent = last_run ? new Date(last_run).toLocaleString() : '—';
+    } catch(err) {
+      console.error('Failed to load schedule', err);
+      schedMsg.textContent = 'Error loading schedule';
+    }
+  }
+
+  saveBtn.addEventListener('click', async () => {
+    const hour   = parseInt(hourInp.value, 10);
+    const minute = parseInt(minInp.value, 10);
+    saveBtn.disabled = true;
+    schedMsg.textContent = 'Saving…';
+    try {
+      const res = await fetch('{{ request.url_for("schedule.update_schedule") }}', {
+        method: 'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ hour, minute })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const { hour: h, minute: m, next_run } = await res.json();
+      schedMsg.textContent = 'Schedule updated';
+      nextRunEl.textContent = next_run ? new Date(next_run).toLocaleString() : '—';
+      hourInp.value = h;
+      minInp.value  = m;
+    } catch(err) {
+      console.error('Error saving schedule', err);
+      schedMsg.textContent = 'Error saving';
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+
+  loadSchedule();
+});
+</script>
+{% endblock %}

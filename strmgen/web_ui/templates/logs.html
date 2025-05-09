@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="section-header">
+    <h2>Application Logs</h2>
+    <div class="log-controls">
+      <input
+        type="text"
+        id="filter-input"
+        class="filter-input"
+        placeholder="Filter logs…"
+        title="Type to filter log lines"
+      />
+      <button
+        id="clear-btn"
+        class="clear-button"
+        style="margin-left:10px;"
+        title="Clear the view"
+      >Clear View</button>
+    </div>
+  </div>
+
+  <div class="logs" id="log-container" style="height:70vh; overflow:auto;"></div>
+
+  <script>
+    const container   = document.getElementById('log-container');
+    const filterInput = document.getElementById('filter-input');
+    const clearBtn    = document.getElementById('clear-btn');
+
+    let filterText = '';
+
+    // Only show lines matching the filter
+    function appendLine(line) {
+      if (filterText && !line.toLowerCase().includes(filterText)) return;
+      const div = document.createElement('div');
+      div.className = 'log-entry';
+      div.textContent = line;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    // Handle filter input
+    filterInput.addEventListener('input', () => {
+      filterText = filterInput.value.trim().toLowerCase();
+      // Clear and let new incoming lines repaint under the new filter
+      container.innerHTML = '';
+    });
+
+    // Clear the view (client‑side only)
+    clearBtn.addEventListener('click', () => {
+      container.innerHTML = '';
+    });
+
+    // SSE for live logs
+    const logsSource = new EventSource('{{ request.url_for("logs.stream_logs") }}');
+    logsSource.onmessage = e => appendLine(e.data);
+    logsSource.onerror = () => {
+      appendLine('— live log stream closed —');
+      logsSource.close();
+    };
+
+    // SSE for progress events
+    const statusSource = new EventSource('{{ request.url_for("logs.get_status") }}');
+    statusSource.addEventListener('progress', e => {
+      const p = JSON.parse(e.data);
+      appendLine(
+        `Progress → ${p.media_type} “${p.group}”: ${p.current}/${p.total}`
+      );
+    });
+  </script>
+{% endblock %}

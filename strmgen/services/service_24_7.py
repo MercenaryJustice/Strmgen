@@ -1,22 +1,16 @@
 # strmgen/services/service_24_7.py
 
 import re
-import asyncio
-from typing import Dict, Optional, List
+from typing import Dict, List
 
-from strmgen.core.config import settings
 from .streams import write_strm_file
-from .tmdb import search_any_tmdb
 from strmgen.core.string_utils import clean_name
-from strmgen.core.utils import write_if, write_movie_nfo, filter_by_threshold
 from strmgen.core.logger import setup_logger
 from strmgen.core.models.dispatcharr import DispatcharrStream
 
 logger = setup_logger(__name__)
-
 RE_24_7_CLEAN = re.compile(r"(?i)\b24[/-]7\b[\s\-:]*")
 _skipped_247: set[str] = set()
-
 
 async def process_24_7(
     streams: List[DispatcharrStream],
@@ -30,6 +24,8 @@ async def process_24_7(
       - Write .strm file
       - Write .nfo if enabled
     """
+    # settings = get_settings()
+
     for stream in streams:
         try:
             # 1) Clean the title
@@ -37,25 +33,6 @@ async def process_24_7(
             if title in _skipped_247:
                 return
 
-            # 2) Fetch metadata from TMDb if configured
-            metadata: Optional[dict] = None
-            if settings.tmdb_api_key:
-                try:
-                    metadata = await search_any_tmdb(title)
-                except Exception:
-                    logger.exception("Error fetching TMDb data for '%s'", title)
-
-            # 3) Apply threshold filter (offload if heavy)
-            try:
-                ok = await asyncio.to_thread(filter_by_threshold, stream.name, metadata)
-            except Exception:
-                logger.exception("Error in threshold filter for '%s'", title)
-                return
-
-            if not ok:
-                return
-
-            # 5) Write the .strm file
             try:
                 wrote = await write_strm_file(stream)
             except Exception:
@@ -64,21 +41,7 @@ async def process_24_7(
 
             if not wrote:
                 return
-
-            # 6) Write NFO if enabled and we have metadata
-            if settings.write_nfo and metadata:
-                try:
-                    # Use to_thread for the write_if helper
-                    await asyncio.to_thread(
-                        write_if,
-                        True,
-                        stream,
-                        write_movie_nfo,
-                        metadata
-                    )
-                except Exception:
-                    logger.exception("Error writing .nfo for '%s'", title)
-        except Exception as e:  # Catch all exceptions to avoid crashing the loop
+        except Exception as e:
             logger.error("Error processing stream %s: %s", stream.name, e)
             continue
     logger.info("Completed processing 24/7 streams for group: %s", group)

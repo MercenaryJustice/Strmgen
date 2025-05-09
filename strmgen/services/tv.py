@@ -1,28 +1,31 @@
 # strmgen/services/tv.py
 
 import asyncio
+import shutil
+
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Optional, List
 from more_itertools import chunked
 
 from strmgen.core.db import mark_skipped, is_skipped, SkippedStream
-from strmgen.core.config import settings
+from strmgen.core.config import get_settings
 from strmgen.core.logger import setup_logger
-from strmgen.services.tmdb import TVShow, lookup_show, get_season_meta, download_if_missing
+from strmgen.services.tmdb import TVShow, fetch_tv_details, get_season_meta, download_if_missing
 from strmgen.services.subtitles import download_episode_subtitles
-from strmgen.core.utils import filter_by_threshold, write_tvshow_nfo, write_episode_nfo
+from strmgen.core.utils import filter_by_threshold, write_tvshow_nfo, write_episode_nfo, safe_remove
 from strmgen.services.streams import fetch_streams
 from strmgen.core.auth import get_auth_headers
 from strmgen.core.control import is_running
 from strmgen.core.models.dispatcharr import DispatcharrStream
 from strmgen.core.models.tv import SeasonMeta
 
-
 logger = setup_logger(__name__)
 TAG = "[TV] 🖼️"
 _skipped: set[str] = set()
 
+# Cached settings at module level (in-memory)
+settings = get_settings()
 
 async def download_subtitles_if_enabled(
     show: str,
@@ -31,13 +34,13 @@ async def download_subtitles_if_enabled(
     season_folder: Path,
     mshow: Optional[TVShow],
 ) -> None:
-
     if not is_running():
         return
 
+    settings = get_settings()
     if settings.opensubtitles_download:
         logger.info(f"{TAG} 🔽 Downloading subtitles for: {show} S{season:02d}E{ep:02d}")
-        tmdb_id = (mshow.external_ids.get("imdb_id") if mshow and mshow.external_ids else None)
+        tmdb_id = mshow.external_ids.get("imdb_id") if mshow and mshow.external_ids else None
         await download_episode_subtitles(
             show,
             season,
@@ -46,13 +49,13 @@ async def download_subtitles_if_enabled(
             tmdb_id=tmdb_id or (str(mshow.id) if mshow else None)
         )
 
-
 async def process_tv(
     streams: List[DispatcharrStream],
     group: str,
     headers: Dict[str, str],
     reprocess: bool = False
 ) -> None:
+    settings = get_settings()
     # 1) Filter out streams missing season/episode
     streams = [s for s in streams if s.season is not None and s.episode is not None]
 
@@ -62,7 +65,7 @@ async def process_tv(
         shows[s.name][s.season].append(s)
 
     # 3) Chunk into show‑batches
-    show_items   = list(shows.items())
+    show_items = list(shows.items())
     show_batches = list(chunked(show_items, settings.batch_size))
 
     async def run_show_batch(batch_idx: int, batch: List):
@@ -85,17 +88,25 @@ async def process_tv(
 
                 # a) Lookup & cache show metadata
                 sample = next(iter(next(iter(seasons.values()))))
-                mshow: Optional[TVShow] = await lookup_show(sample)
+                mshow: Optional[TVShow] = await fetch_tv_details(group, show_name)
                 if not is_running() or not mshow:
                     _skipped.add(show_name)
                     return
 
                 # b) Threshold check
-                passed = await asyncio.to_thread(filter_by_threshold, show_name, mshow.raw)
+                passed = await asyncio.to_thread(filter_by_threshold, show_name, mshow)
                 if not is_running() or not passed:
-                    await mark_skipped("TV", group, mshow, sample)
-                    _skipped.add(show_name)
-                    logger.info(f"{TAG} 🚫 Threshold filter failed for: {show_name}")
+                    try:
+                        await mark_skipped("TV", group, mshow, sample)
+                        _skipped.add(show_name)
+                        await asyncio.to_thread(shutil.rmtree, mshow.show_folder)
+                        logger.info(f"{TAG} 🚫 Threshold filter failed for: {show_name}")
+                        if mshow.show_folder.exists():
+                            await asyncio.to_thread(safe_remove, mshow.show_folder)
+                            logger.info(f"{TAG} ✂️ Removed path: {mshow.show_folder}")
+                    except Exception as e:
+                        logger.info(f"{TAG} Exception occurred: {e}")
+
                     return
 
                 # c) Write show‑level NFO & artwork
@@ -184,7 +195,6 @@ async def process_tv(
     ))
 
     logger.info(f"{TAG} 🏁 Completed processing TV streams for group: {group}")
-
 
 async def reprocess_tv(skipped: SkippedStream) -> bool:
     headers = await get_auth_headers()

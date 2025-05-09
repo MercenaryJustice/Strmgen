@@ -13,11 +13,11 @@ from strmgen.api.routers import settings as settings_router
 from strmgen.web_ui.routes import router as ui_router
 from strmgen.core.auth import get_access_token
 from strmgen.pipeline.runner import schedule_on_startup
-from strmgen.core.config import register_startup, settings
+from strmgen.core.config import register_startup, get_settings
 from strmgen.core.db import close_pg_pool, init_pg_pool
 from strmgen.core.logger import setup_logger
-from strmgen.services.tmdb import init_tv_genre_map
-from .core.httpclient import async_client, tmdb_client, tmdb_image_client
+# from strmgen.services.tmdb import init_tv_genre_map
+from strmgen.core.httpclient import async_client, tmdb_client, tmdb_image_client
 
 app = FastAPI(title="STRMGen API & UI", debug=True)
 
@@ -40,9 +40,6 @@ api_v1.include_router(skipped.router,  prefix="/skipped")
 api_v1.include_router(settings_router.router, prefix="/settings")
 app.include_router(api_v1)
 
-postgres_container: PostgresContainer
-
-
 # Static files for the UI
 STATIC_DIR = Path(__file__).parent / "web_ui" / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -51,17 +48,17 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 def favicon():
     return FileResponse(STATIC_DIR / "img" / "strmgen_icon.png")
 
-
 # Global container reference
 postgres_container: Optional[PostgresContainer] = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings = get_settings()
     global postgres_container
 
     # 1) Optionally launch a PostgreSQL Docker container
-    try:
-        if settings.enable_testcontainers:
+    if settings.enable_testcontainers:
+        try:
             postgres_container = PostgresContainer(
                 image=settings.testcontainers_image,
                 username=settings.db_user,
@@ -71,21 +68,22 @@ async def lifespan(app: FastAPI):
             postgres_container.start()
             raw_dsn = postgres_container.get_connection_url()
             if raw_dsn.startswith("postgresql+psycopg2://"):
-                raw_dsn = "postgresql://" + raw_dsn.split("://", 1)[1]
+                raw_dsn = "postgresql://" + raw_dsn.split("//", 1)[1]
             settings.postgres_dsn = raw_dsn
             logger.info("Started test Postgres container: %s", raw_dsn)
-        else:
-            raise RuntimeError("Testcontainers disabled by configuration")
-    except Exception as e:
-        logger.warning(
-            "Testcontainers unavailable (%s); falling back to DATABASE_URL", e
-        )
+        except Exception as e:
+            logger.warning(
+                "Testcontainers unavailable (%s); falling back to DATABASE_URL", e
+            )
+            settings.postgres_dsn = settings.database_url
+    else:
+        # Use the configured database URL
         settings.postgres_dsn = settings.database_url
 
-    # 2) Create your asyncpg pool
+    # 2) Initialize asyncpg pool
     await init_pg_pool()
 
-    # 3) Ensure your table & index exist
+    # 3) Ensure skipped_streams table exists
     from strmgen.core.db import _pool as pg_pool
     async with pg_pool.acquire() as conn:
         await conn.execute("""
@@ -106,33 +104,25 @@ async def lifespan(app: FastAPI):
     # 4) Start scheduler, auth, and TMDb genre map
     schedule_on_startup()
     await get_access_token()
-    await init_tv_genre_map()
+    # await init_tv_genre_map()
 
     try:
         yield
     finally:
-        # Shutdown sequence
-
-        # 1) Close DB pool
+        # Shutdown: close DB pool, HTTP clients, scheduler, and test container
         await close_pg_pool()
-
-        # 2) Stop test container if it was started
-        if postgres_container is not None:
+        if postgres_container:
             try:
                 postgres_container.stop()
                 logger.info("Stopped test Postgres container")
             except Exception:
                 logger.exception("Error stopping test Postgres container")
 
-        # 3) Stop background jobs
+        # Stop background jobs and close HTTP clients
         from strmgen.pipeline.runner import scheduler
+        scheduler.shutdown(wait=False)
         await tmdb_client.aclose()
         await tmdb_image_client.aclose()
-
-        # 4) stop background jobs
-        scheduler.shutdown(wait=False)
-
-        # 5) Close HTTP clients
         await async_client.aclose()
 
 # Attach the lifespan to the app

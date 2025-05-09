@@ -2,17 +2,19 @@
 from typing import Optional
 from pathlib import Path
 
-from strmgen.core.config import settings
+from strmgen.core.config import get_settings
 from strmgen.core.models.models import StreamInfo
 from strmgen.core.models.enums import MediaType
 
 class MediaPaths:
-    ROOT = Path(settings.output_root)
+    """
+    Utility for constructing media file paths based on in-memory settings.
+    """
 
     @classmethod
-    def _ensure(cls, p: Path) -> Path:
-        p.mkdir(parents=True, exist_ok=True)
-        return p
+    def _root(cls) -> Path:
+        """Get the configured output root directory from settings."""
+        return Path(get_settings().output_root)
 
     @classmethod
     def _base_folder(
@@ -23,16 +25,14 @@ class MediaPaths:
         year: Optional[int] = None
     ) -> Path:
         """
-        e.g. …/<media_type>/<group>/<title> (YYYY)   (for movies)
-             …/<media_type>/<group>/<show>            (for TV)
+        Construct the base folder for the given media type, group, title, and optional year.
         """
+        root = cls._root()
         if media_type is MediaType.MOVIE:
             folder_name = f"{title} ({year})" if year else title
         else:
             folder_name = title
-
-        return cls.ROOT / media_type.value / group / folder_name
-        # return cls._ensure(folder)
+        return root / media_type.value / group / folder_name
 
     @classmethod
     def _file_path(
@@ -43,7 +43,11 @@ class MediaPaths:
         year: Optional[int],
         filename: str
     ) -> Path:
+        """
+        Build the full file path under the base folder and ensure directories exist.
+        """
         base = cls._base_folder(media_type, group, title, year)
+        base.mkdir(parents=True, exist_ok=True)
         return base / filename
 
     # ── Movie helpers ────────────────────────────────────────────────────────────
@@ -81,13 +85,15 @@ class MediaPaths:
     def season_folder(cls, stream: StreamInfo) -> Path:
         assert stream.season is not None, "season required"
         base = cls._base_folder(MediaType.TV, stream.group, stream.title, None)
-        return base / f"Season {stream.season:02d}"
-        # return cls._ensure(sf)
+        season_folder = base / f"Season {stream.season:02d}"
+        season_folder.mkdir(parents=True, exist_ok=True)
+        return season_folder
 
     @classmethod
     def season_poster(cls, stream: StreamInfo) -> Path:
         sf = cls.season_folder(stream)
-        return sf / f"Season {stream.season:02d}.tbn"
+        fn = f"Season {stream.season:02d}.tbn"
+        return sf / fn
 
     @classmethod
     def episode_strm(cls, stream: StreamInfo) -> Path:
@@ -106,5 +112,4 @@ class MediaPaths:
     def episode_image(cls, stream: StreamInfo) -> Path:
         sf = cls.season_folder(stream)
         base = f"{stream.title} - S{stream.season:02d}E{stream.episode:02d}"
-        return sf / f"{base}.jpg"    
-    
+        return sf / f"{base}.jpg"

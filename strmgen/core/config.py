@@ -2,32 +2,26 @@
 import json
 import re
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
+
 from fastapi import FastAPI
 from fastapi_utils.tasks import repeat_every
 from pydantic import BaseModel, Field, field_validator
 
-
-
-
-
 # ─── 1) Locate your JSON file ─────────────────────────────────────────────────
-# Assumes this file lives at:  strmgen/strmgen/config.py
-# and your JSON lives at:        strmgen/strmgen/config/config.json
+# Assumes this file lives at:  strmgen/core/config.py
+# and your JSON lives at:        strmgen/core/config/config.json
 
-BASE_DIR    = Path(__file__).parent           # .../strmgen/strmgen
+BASE_DIR    = Path(__file__).parent           # .../strmgen/core
 CONFIG_PATH = BASE_DIR / "config.json"
+
 
 if not CONFIG_PATH.exists():
     raise FileNotFoundError(f"Cannot find config.json at {CONFIG_PATH!r}")
 
-# ─── 2) Load JSON once ─────────────────────────────────────────────────────────
-with CONFIG_PATH.open(encoding="utf-8") as f:
-    _json_cfg = json.load(f)
-
-
-# ─── 3) Define your validated settings model ──────────────────────────────────
+# ─── 2) Define your validated settings model ──────────────────────────────────
 class Settings(BaseModel):
     # Authentication & API
     api_base:        str
@@ -52,7 +46,7 @@ class Settings(BaseModel):
 
     # Output & directories
     clean_output_dir: bool
-    output_root:      Path
+    output_root:      str
 
     # Filtering
     process_movies_groups:    bool
@@ -73,7 +67,7 @@ class Settings(BaseModel):
     skip_stream_check:        bool
     update_stream_link:       bool
     only_updated_streams:     bool
-    last_modified_days: int = 0         # Number of days after which a stream’s `updated_at` is considered stale.
+    last_modified_days: int = 0
 
     # TMDb
     tmdb_api_key:         Optional[str]
@@ -104,13 +98,12 @@ class Settings(BaseModel):
     opensubtitles_api_key:   Optional[str]
     opensubtitles_username:  Optional[str]
     opensubtitles_password:  Optional[str]
+    
+    # Emby
+    emby_api_url: Optional[str]
+    emby_api_key:  Optional[str]
+    emby_movie_library_id:   Optional[int]
 
-
-    # ─── In-memory caches ───────────────────────────────────────────────────────
-    tmdb_show_cache:    Dict[str, Any] = Field(default_factory=dict)
-    tmdb_season_cache:  Dict[str, Any] = Field(default_factory=dict)
-    tmdb_episode_cache: Dict[str, Any] = Field(default_factory=dict)
-    tmdb_movie_cache:   Dict[str, Any] = Field(default_factory=dict)
 
     # ─── coerce blank-last_run into None ──────────────────────────────────────
     @field_validator("last_run", mode="before")
@@ -142,43 +135,39 @@ class Settings(BaseModel):
 
     @property
     def MOVIE_TITLE_YEAR_RE(self) -> re.Pattern[str]:
-        # compile once, reuse everywhere
         return re.compile(self.movie_year_regex)
-
 
     @property
     def TV_SERIES_EPIDOSE_RE(self) -> re.Pattern[str]:
-        # compile once, reuse everywhere
         return re.compile(self.tv_series_episode_regex)
 
-# ─── 4) Instantiate from your JSON ────────────────────────────────────────────
-settings: Settings = Settings(**_json_cfg)
+# ─── 3) Cached loader for settings ───────────────────────────────────────────
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """
+    Load and return the Settings instance from config.json, cached in-memory.
+    Calling get_settings again returns the same object without re-reading disk.
+    """
+    with CONFIG_PATH.open(encoding="utf-8") as f:
+        data = json.load(f)
+    return Settings(**data)
+
 
 def reload_settings() -> None:
     """
-    Re-read config.json (and .env) and re-instantiate the Pydantic Settings
-    so that our FastAPI dependency always returns a Settings instance.
+    Clear the cached Settings so that next get_settings() re-reads config.json.
     """
-    global settings
-    # If you're using BaseSettings with settings_file, simply:
-    settings = Settings()
+    get_settings.cache_clear()
 
-    # Or, if you manually load the JSON first:
-    # import json
-    # data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    # settings = Settings(**data)
-
-def get_settings() -> Settings:
-    return settings
 
 def save_settings(cfg: Settings) -> None:
     """
-    Persist the given Settings back to disk (config.json).
+    Persist the given Settings back to disk (config.json), then clear cache.
     """
-    # Dump only the JSON‐serializable data
-    data = cfg.model_dump(mode="json")  # pydantic v2; use .dict() if on v1
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+    data = cfg.model_dump(mode="json")
+    with CONFIG_PATH.open("w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+    get_settings.cache_clear()
 
 
 def register_startup(app: FastAPI) -> None:

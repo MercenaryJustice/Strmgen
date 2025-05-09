@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Any
 from pathlib import Path
+from datetime import datetime
 
 from strmgen.core.string_utils import clean_name
 from strmgen.core.models.paths import MediaPaths
@@ -23,7 +24,7 @@ class TVShow:
     media_type: str
     adult: bool
     original_language: str
-    genre_ids: List[int]
+    genre_ids: Dict[str, Any]
     popularity: float
     first_air_date: str
     vote_average: float
@@ -31,7 +32,6 @@ class TVShow:
     origin_country: List[str]
     external_ids: Dict[str, Any]
     raw: Dict[str, Any]
-    genre_names: List[str] = field(default_factory=list)
 
     # — computed paths (init=False so you don’t pass them in) —
     show_folder:         Path = field(init=False, repr=False)
@@ -44,14 +44,12 @@ class TVShow:
         info = StreamInfo(
             group   = self.channel_group_name,
             title   = clean_name(self.name),
-            # movies use .year, tv doesn’t need it
-            year    = None,
+            year    = None,      # movies use .year, TVShow will supply via property
             season  = None,
             episode = None,
         )
 
         # 1) ensure the base show folder exists
-        #    …/TV Shows/<group>/<show>/
         self.show_folder = MediaPaths._base_folder(
             MediaType.TV,
             info.group,
@@ -60,24 +58,30 @@ class TVShow:
         )
 
         # 2) path to the show‐level .nfo
-        #    …/TV Shows/<group>/<show>/<show>.nfo
-        self.show_nfo_path = MediaPaths.show_nfo(
-            info
-        )
+        self.show_nfo_path = MediaPaths.show_nfo(info)
 
         # 3) local filenames for poster & fanart
-        #    …/TV Shows/<group>/<show>/poster.jpg
-        #    …/TV Shows/<group>/<show>/fanart.jpg
-        self.poster_local_path   = MediaPaths.show_image(
-            info, "poster.jpg"
-        )
-        self.backdrop_local_path = MediaPaths.show_image(
-            info, "fanart.jpg"
-        )
+        self.poster_local_path   = MediaPaths.show_image(info, "poster.jpg")
+        self.backdrop_local_path = MediaPaths.show_image(info, "fanart.jpg")
 
     def _recompute_paths(self) -> None:
-        # same logic again
         self.__post_init__()
+
+    @property
+    def year(self) -> Optional[int]:
+        """
+        Derive a year from first_air_date (YYYY-MM-DD). 
+        Returns an int if valid, else None.
+        """
+        if not self.first_air_date:
+            return None
+
+        try:
+            # datetime.fromisoformat handles “YYYY-MM-DD”
+            dt = datetime.fromisoformat(self.first_air_date)
+            return dt.year
+        except (ValueError, TypeError):
+            return None
 
 
 @dataclass

@@ -4,8 +4,8 @@ import asyncio
 import httpx
 from typing import Dict, Callable, Awaitable, AsyncIterator
 
-from .config import settings
-from .logger import setup_logger
+from strmgen.core.config import get_settings
+from strmgen.core.logger import setup_logger
 
 logger = setup_logger(__name__)
 
@@ -17,6 +17,7 @@ async def _fetch_new_token() -> str:
     """
     Fetch a new bearer token from the auth endpoint and update the expiry.
     """
+    settings = get_settings()
     url = f"{settings.api_base.rstrip('/')}{settings.token_url}"
     logger.debug(f"[AUTH] Fetching new token from {url} with username={settings.username!r}")
     async with httpx.AsyncClient(timeout=10) as client:
@@ -29,9 +30,12 @@ async def _fetch_new_token() -> str:
     data = resp.json()
     token = data.get("access") or data.get("token")
     expires_in = data.get("expires_in", 3600)
+
     loop = asyncio.get_event_loop()
     global _token_expires_at
+    # subtract a buffer so we refresh before actual expiry
     _token_expires_at = loop.time() + expires_in - 60
+
     logger.info(f"[AUTH] Retrieved new token; expires in {expires_in}s")
     return token
 
@@ -83,7 +87,6 @@ class TokenAuth(httpx.Auth):
             request.headers["Authorization"] = f"Bearer {self._get_token()}"
             yield request
 
-
 def _get_token() -> str:
     """
     Return the currently cached token.
@@ -92,6 +95,6 @@ def _get_token() -> str:
 
 async def _refresh_token() -> None:
     """
-    Force-refresh the cached token by calling the header getter with expired flag.
+    Force-refresh the cached token by calling get_auth_headers with expired flag.
     """
     await get_auth_headers(expired=True)

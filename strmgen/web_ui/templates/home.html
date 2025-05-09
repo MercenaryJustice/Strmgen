@@ -6,7 +6,9 @@
     /* use your theme’s primary text color; #333 is a good fallback */
     color: #333 !important;
   }
-</style><div class="dashboard-grid">
+</style>
+
+<div class="dashboard-grid">
 
   <!-- Run/Stop Card -->
   <div class="card welcome-card">
@@ -15,22 +17,22 @@
     <button id="run-btn" class="run-button">Run Now</button>
     <button id="stop-btn" class="stop-button" style="display:none; margin-left:10px;">Stop</button>
     <div id="run-msg" class="setting-help" style="margin-top:10px;"></div>
-    <!-- progress bar for batch progress -->
     <progress id="batch-progress" value="0" max="0"
               style="width:100%; margin-top:1em;"></progress>
-    <div id="run-log" class="run-log" style="margin-top:1em; max-height:200px; overflow-y:auto; background:#f9f9f9; padding:0.5em; border:1px solid #ddd;"></div>
+    <div id="run-log" class="run-log"
+         style="margin-top:1em; max-height:200px; overflow-y:auto; background:#f9f9f9; padding:0.5em; border:1px solid #ddd;"></div>
   </div>
 
   <!-- Scheduled Task Card -->
   <div class="card">
     <h2><i class="fas fa-calendar-alt"></i> Scheduled Task</h2>
     <div class="setting-item">
-      <label for="sched-hour">Hour (0–23):</label>
-      <input id="sched-hour" type="number" min="0" max="23" />
+      <label for="scheduled_hour">Hour (0–23):</label>
+      <input id="scheduled_hour" type="number" min="0" max="23" />
     </div>
     <div class="setting-item">
-      <label for="sched-minute">Minute (0–59):</label>
-      <input id="sched-minute" type="number" min="0" max="59" />
+      <label for="scheduled_minute">Minute (0–59):</label>
+      <input id="scheduled_minute" type="number" min="0" max="59" />
     </div>
     <div class="settings-actions" style="margin-top:10px;">
       <button id="save-schedule" class="save-button">Save Schedule</button>
@@ -81,7 +83,6 @@ document.addEventListener('DOMContentLoaded', () => {
   statusSource.addEventListener('message', event => {
     const { running } = JSON.parse(event.data);
 
-    // if the pipeline just transitioned from running→stopped...
     if (wasRunning && !running) {
       runMsg.textContent = 'Pipeline completed successfully';
       progressBar.value = 0;
@@ -93,7 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
     runBtn.disabled       = running;
     runBtn.style.display  = running ? 'none' : 'inline-block';
     stopBtn.style.display = running ? 'inline-block' : 'none';
-    wasRunning            = running;    
+    wasRunning            = running;
   });
 
   statusSource.addEventListener('error', e => {
@@ -103,27 +104,31 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ─── Run button ───────────────────────────────────────────────────────────
-  runBtn.addEventListener('click', async () => {
-    runBtn.disabled    = true;
-    runMsg.textContent = 'Starting…';
-    logContainer.innerHTML = "";
-    progressBar.value   = 0;
-    progressBar.max     = 0;
-    try {
-      const res = await fetch('{{ request.url_for("process.run") }}', { method: 'POST' });
-      if (!res.ok) throw new Error(await res.text());
-      runMsg.textContent    = 'Pipeline started';
-      runRequestedAt       = Date.now();
-      localStorage.setItem('runRequestedAt', runRequestedAt);
-      runBtn.style.display  = 'none';
-      stopBtn.style.display = 'inline-block';
-      wasRunning            = true;
-    } catch(err) {
-      console.error('Run error', err);
-      runMsg.textContent = 'Error starting';
-      runBtn.disabled    = false;
-    }
-  });
+  runBtn.addEventListener('click', () => {
+    runBtn.disabled      = true;
+    runMsg.textContent   = 'Starting…';
+    logContainer.innerHTML = '';
+    progressBar.value    = 0;
+    progressBar.max      = 0;
+
+    // fire‑and‑forget
+    fetch('{{ request.url_for("process.run") }}', { method: 'POST' })
+      .then(res => {
+        if (!res.ok) throw new Error(res.statusText);
+        runMsg.textContent = 'Pipeline started';
+        localStorage.setItem('runRequestedAt', Date.now());
+      })
+      .catch(err => {
+        console.error('Run error', err);
+        runMsg.textContent = 'Error starting';
+        runBtn.disabled = false;
+      });
+
+    // immediate UI toggle, before fetch resolves
+    runBtn.style.display  = 'none';
+    stopBtn.style.display = 'inline-block';
+    wasRunning            = true;
+  });  
 
   // ─── Stop button ──────────────────────────────────────────────────────────
   stopBtn.addEventListener('click', async () => {
@@ -134,12 +139,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!res.ok) throw new Error(await res.text());
       runMsg.textContent = 'Stop signal sent';
       appendLogEntry('--- stopped by user ---');
-      // Optional: immediately check status for a snappier UI
       const status = await fetch('{{ request.url_for("process.get_status") }}').then(r => r.json());
       if (!status.running) {
         runBtn.style.display  = 'inline-block';
         stopBtn.style.display = 'none';
-      }      
+      }
     } catch(err) {
       console.error('Stop error', err);
       runMsg.textContent = 'Error stopping';
@@ -151,9 +155,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // ─── Processing Log SSE ──────────────────────────────────────────────
   const logSource = new EventSource('{{ request.url_for("logs.stream_logs") }}');
   logSource.addEventListener('message', e => {
-    const line = document.createElement('div');
-    line.textContent = e.data;
-    logContainer.appendChild(line);
+    appendLogEntry(e.data);
     if (logContainer.children.length > 1000) {
       for (let i = 0; i < 100; i++) logContainer.removeChild(logContainer.firstChild);
     }
@@ -173,26 +175,31 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ─── Scheduler UI Logic ─────────────────────────────────────────────────
-  const hourInp   = document.getElementById('sched-hour');
-  const minInp    = document.getElementById('sched-minute');
+  const hourInp   = document.getElementById('scheduled_hour');
+  const minInp    = document.getElementById('scheduled_minute');
   const saveBtn   = document.getElementById('save-schedule');
   const nextRunEl = document.getElementById('next-run');
   const lastRunEl = document.getElementById('last-run');
   const schedMsg  = document.getElementById('sched-msg');
 
+  const SCHEDULE_GET_URL = '{{ request.url_for("schedule.get_schedule") }}';
+  const SCHEDULE_POST_URL = '{{ request.url_for("schedule.update_schedule") }}';
+
   async function loadSchedule() {
     try {
-      const res = await fetch('{{ request.url_for("schedule.get_schedule") }}', { method: 'GET' });
+      const res = await fetch(SCHEDULE_GET_URL);
       if (!res.ok) throw new Error(await res.text());
       const { enabled, hour, minute, next_run, last_run } = await res.json();
+
       if (!enabled) {
         document.querySelectorAll('.card')[1].style.display = 'none';
         return;
       }
+
       hourInp.value         = hour;
       minInp.value          = minute;
-      nextRunEl.textContent = next_run ? new Date(next_run).toLocaleString() : '—';
-      lastRunEl.textContent = last_run ? new Date(last_run).toLocaleString() : '—';
+      nextRunEl.textContent = next_run  ? new Date(next_run).toLocaleString() : '—';
+      lastRunEl.textContent = last_run  ? new Date(last_run).toLocaleString() : '—';
     } catch(err) {
       console.error('Failed to load schedule', err);
       schedMsg.textContent = 'Error loading schedule';
@@ -200,22 +207,20 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   saveBtn.addEventListener('click', async () => {
-    const hour   = parseInt(hourInp.value, 10);
-    const minute = parseInt(minInp.value, 10);
+    const payload = { hour: parseInt(hourInp.value, 10), minute: parseInt(minInp.value, 10) };
     saveBtn.disabled = true;
     schedMsg.textContent = 'Saving…';
     try {
-      const res = await fetch('{{ request.url_for("schedule.update_schedule") }}', {
-        method: 'POST',
-        headers:{ 'Content-Type':'application/json' },
-        body: JSON.stringify({ hour, minute })
+      const res = await fetch(SCHEDULE_POST_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload)
       });
       if (!res.ok) throw new Error(await res.text());
-      const { hour: h, minute: m, next_run } = await res.json();
+      const { next_run, last_run } = await res.json();
       schedMsg.textContent = 'Schedule updated';
       nextRunEl.textContent = next_run ? new Date(next_run).toLocaleString() : '—';
-      hourInp.value = h;
-      minInp.value  = m;
+      lastRunEl.textContent = last_run ? new Date(last_run).toLocaleString() : '—';
     } catch(err) {
       console.error('Error saving schedule', err);
       schedMsg.textContent = 'Error saving';

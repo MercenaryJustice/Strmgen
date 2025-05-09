@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-from fastapi import APIRouter
+from fastapi import APIRouter, BackgroundTasks
 from strmgen.pipeline.runner import (
     start_background_run,
     stop_background_run,
@@ -13,8 +13,8 @@ from sse_starlette.sse import EventSourceResponse
 router = APIRouter(tags=["process"])
 
 @router.post("/run", name="process.run")
-async def run_now():
-    start_background_run()
+async def run_now(background_tasks: BackgroundTasks):
+    background_tasks.add_task(start_background_run)
     return {"status": "started"}
 
 @router.post("/stop", name="process.stop")
@@ -38,7 +38,8 @@ async def stream_status_sse():
     """
     async def event_generator():
         while True:
-            yield f"data: {json.dumps({'running': is_running()})}\n\n"
+            status = {'running': is_running()}
+            yield json.dumps(status)
             await asyncio.sleep(1)
 
     return EventSourceResponse(

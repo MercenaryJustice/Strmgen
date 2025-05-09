@@ -1,537 +1,362 @@
 {% extends "base.html" %}
 {% block content %}
 <h2>Settings</h2>
-<form id="settingsForm" class="settings-form">
-
-  <!-- Core Connection -->
-  <div class="settings-group">
-    <h3>Core Connection</h3>
-    <div class="setting-item">
-      <label for="api_base">API Base URL</label>
-      <input id="api_base" type="text" name="api_base" value="{{ config.api_base }}" required/>
-      <div class="setting-help">Base URL of the STRMGen API (e.g., http://host:port)</div>
-    </div>
-    <div class="setting-item">
-      <label for="token_url">Token URL</label>
-      <input id="token_url" type="text" name="token_url" value="{{ config.token_url }}" required/>
-      <div class="setting-help">Path to the authentication token endpoint (e.g., /api/accounts/token/)</div>
-    </div>
-    <div class="setting-item">
-      <label for="access">Dispatcharr Access Token</label>
-      <input id="access" type="password" name="access" value="{{ config.access }}"/>
-      <div class="setting-help">Dispatcharr access token</div>
-    </div>
-    <div class="setting-item">
-      <label for="refresh">Dispatcharr Refresh Token</label>
-      <input id="refresh" type="password" name="refresh" value="{{ config.refresh }}"/>
-      <div class="setting-help">Dispatcharr refresh token</div>
-    </div>
-  </div>
-
-  <!-- Credentials -->
-  <div class="settings-group">
-    <h3>Credentials</h3>
-    <div class="setting-item">
-      <label for="username">Username</label>
-      <input id="username" type="text" name="username" value="{{ config.username }}" required/>
-      <div class="setting-help">Username for API authentication</div>
-    </div>
-    <div class="setting-item">
-      <label for="password">Password</label>
-      <div style="display: flex; align-items: center;">
-        <input id="password" type="password" name="password" value="{{ config.password }}" required/>
-        <button type="button" class="toggle-password" data-target="password" style="margin-left:8px;">Show</button>
-      </div>
-      <div class="setting-help">Password for API authentication</div>
-    </div>
-  </div>
-
-  <!-- Streaming -->
-  <div class="settings-group">
-    <h3>Streaming</h3>
-    <div class="setting-item">
-      <label for="stream_base_url">Stream Base URL</label>
-      <input id="stream_base_url" type="text" name="stream_base_url" value="{{ config.stream_base_url }}" required/>
-      <div class="setting-help">Base path for streaming endpoints (e.g., /proxy/ts/stream/)</div>
-    </div>
-    <div class="setting-item">
-      <label><input type="checkbox" name="skip_stream_check" {% if config.skip_stream_check %}checked{% endif %}/> Skip Stream Check</label>
-      <div class="setting-help">Skip validating stream availability</div>
-    </div>
-    <div class="setting-item">
-      <label><input type="checkbox" name="only_updated_streams" {% if config.only_updated_streams %}checked{% endif %}/> Only Updated Streams</label>
-      <div class="setting-help">Process only streams that have changed since last run</div>
-    </div>
-    <div class="setting-item">
-      <label for="last_modified_days">Max Stream Age (days)</label>
-      <input id="last_modified_days" type="number" name="last_modified_days"
-             min="0" value="{{ config.last_modified_days }}"/>
-      <div class="setting-help">
-        Skip any stream whose `updated_at` is older than this many days (0 = no filtering).
-      </div>
-    </div>
-    <div class="setting-item">
-      <label><input type="checkbox" name="update_stream_link" {% if config.update_stream_link %}checked{% endif %}/> Update Stream Link</label>
-      <div class="setting-help">Update stream URLs instead of skipping on unchanged</div>
-    </div>
-  </div>
-
-  <!-- Output -->
-  <div class="settings-group">
-    <h3>Output</h3>
-    <div class="setting-item">
-      <label for="output_root">Output Root</label>
-      <input id="output_root" type="text" name="output_root" value="{{ config.output_root }}" required/>
-      <div class="setting-help">Root directory where output files will be written</div>
-    </div>
-    <div class="setting-item">
-      <label><input type="checkbox" name="clean_output_dir" {% if config.clean_output_dir %}checked{% endif %}/> Clean Output Directory</label>
-      <div class="setting-help">Remove and recreate the output directory on each run</div>
-    </div>
-  </div>
-
-  <!-- Processing Groups -->
-  <div class="settings-group">
-    <h3>Processing Groups</h3>
-    <div class="setting-item">
-      <label><input type="checkbox" name="process_movies_groups" {% if config.process_movies_groups %}checked{% endif %}/> Process Movies Groups</label>
-      <div class="setting-help">Enable processing of the defined movie groups</div>
-    </div>
-    <div class="setting-item">
-      <label for="movies_groups_raw">Movies Groups (comma-sep)</label>
-      <input id="movies_groups_raw" type="text" name="movies_groups_raw" value="{{ config.movies_groups|join(',') }}"/>
-      <div class="setting-help">Comma-separated patterns identifying movie groups to process</div>
-    </div>
-    <div class="setting-item">
-      <label><input type="checkbox" name="process_tv_series_groups" {% if config.process_tv_series_groups %}checked{% endif %}/> Process TV Series Groups</label>
-      <div class="setting-help">Enable processing of the defined TV series groups</div>
-    </div>
-    <div class="setting-item">
-      <label for="tv_series_groups_raw">TV Series Groups (comma-sep)</label>
-      <input id="tv_series_groups_raw" type="text" name="tv_series_groups_raw" value="{{ config.tv_series_groups|join(',') }}"/>
-      <div class="setting-help">Comma-separated patterns identifying TV series groups to process</div>
-    </div>
-    <div class="setting-item">
-      <label><input type="checkbox" name="process_groups_24_7" {% if config.process_groups_24_7 %}checked{% endif %}/> Process 24/7 Groups</label>
-      <div class="setting-help">Enable processing of live 24/7 channels</div>
-    </div>
-    <div class="setting-item">
-      <label for="groups_24_7_raw">24/7 Groups (comma-sep)</label>
-      <input id="groups_24_7_raw" type="text" name="groups_24_7_raw" value="{{ config.groups_24_7|join(',') }}"/>
-      <div class="setting-help">Comma-separated patterns identifying 24/7 channel groups to process</div>
-    </div>
-    <div class="setting-item">
-      <label for="remove_strings_raw">Remove Strings (comma-sep)</label>
-      <input id="remove_strings_raw" type="text" name="remove_strings_raw" value="{{ config.remove_strings|join(',') }}"/>
-      <div class="setting-help">Comma-separated list of substrings to strip from titles</div>
-    </div>
-  </div>
-
-  <!-- Request / Batch Settings -->
-  <div class="settings-group">
-    <h3>Request / Batch</h3>
-
-    <div class="setting-item">
-      <label for="batch_size">Batch Size</label>
-      <input
-        id="batch_size"
-        type="number"
-        name="batch_size"
-        min="1"
-        value="{{ config.batch_size }}"
-        required
-      />
-      <div class="setting-help">
-        Number of items to process per batch
-      </div>
-    </div>
-
-    <div class="setting-item">
-      <label for="batch_delay_seconds">Batch Delay (seconds)</label>
-      <input
-        id="batch_delay_seconds"
-        type="number"
-        name="batch_delay_seconds"
-        min="0"
-        value="{{ config.batch_delay_seconds }}"
-        required
-      />
-      <div class="setting-help">
-        Pause between each batch of requests
-      </div>
-    </div>
-
-    <div class="setting-item">
-      <label for="concurrent_requests">Concurrent Requests</label>
-      <input
-        id="concurrent_requests"
-        type="number"
-        name="concurrent_requests"
-        min="1"
-        value="{{ config.concurrent_requests }}"
-        required
-      />
-      <div class="setting-help">
-        How many TMDb requests to fire off in parallel
-      </div>
-    </div>
-
-    <div class="setting-item">
-      <label for="tmdb_rate_limit">TMDb Rate Limit (per minute)</label>
-      <input
-        id="tmdb_rate_limit"
-        type="number"
-        name="tmdb_rate_limit"
-        min="1"
-        value="{{ config.tmdb_rate_limit }}"
-        required
-      />
-      <div class="setting-help">
-        Max TMDb API calls allowed per minute
-      </div>
-    </div>
-  </div>  
-
-
-  <!-- Filename Parsing -->
-  <div class="settings-group">
-    <h3>Filename Parsing</h3>
-    <div class="setting-item">
-      <label for="movie_year_regex">Movie Title-Year Regex</label>
-      <input id="movie_year_regex" type="text" name="movie_year_regex" value="{{ config.movie_year_regex }}" required/>
-      <div class="setting-help">Regex to extract title and year from filenames (named groups 'title' and 'year'.)</div>
-    </div>
-    <div class="setting-item">
-      <label for="tv_series_episode_regex">TV Series Season / Episode Regex</label>
-      <input id="tv_series_episode_regex" type="text" name="tv_series_episode_regex" value="{{ config.tv_series_episode_regex }}" required/>
-      <div class="setting-help">Regex to extract tv series season and episode</div>
-    </div>
-  </div>
-
-  <!-- TMDb Options -->
-  <div class="settings-group">
-    <h3>TMDb Options</h3>
-    <div class="setting-item">
-      <label for="tmdb_api_key">TMDb API Key</label>
-      <div style="display: flex; align-items: center;">
-        <input id="tmdb_api_key" type="password" name="tmdb_api_key" value="{{ config.tmdb_api_key or '' }}"/>
-        <button type="button" class="toggle-password" data-target="tmdb_api_key" style="margin-left:8px;">Show</button>
-      </div>
-      <div class="setting-help">Your TMDb API key for metadata lookup (optional)</div>
-    </div>
-    <div class="setting-item">
-      <label for="tmdb_language">Language</label>
-      <input id="tmdb_language" type="text" name="tmdb_language" value="{{ config.tmdb_language }}"/>
-      <div class="setting-help">Language code for TMDb metadata (e.g., en-US)</div>
-    </div>
-    <div class="setting-item">
-      <label><input type="checkbox" name="tmdb_download_images" {% if config.tmdb_download_images %}checked{% endif %}/> Download Images</label>
-      <div class="setting-help">Download poster and fanart images from TMDb</div>
-    </div>
-    <div class="setting-item">
-      <label for="tmdb_image_size">Image Size</label>
-      <input id="tmdb_image_size" type="text" name="tmdb_image_size" value="{{ config.tmdb_image_size }}"/>
-      <div class="setting-help">Preferred image size for TMDb images (e.g., original)</div>
-    </div>
-    <div class="setting-item">
-      <label><input type="checkbox" name="tmdb_create_not_found" {% if config.tmdb_create_not_found %}checked{% endif %}/> Create “Not Found” Placeholder?</label>
-      <div class="setting-help">Create placeholder images when TMDb has no art</div>
-    </div>
-    <div class="setting-item">
-      <label for="minimum_year">Minimum Year</label>
-      <input id="minimum_year" type="number" name="minimum_year" value="{{ config.minimum_year }}"/>
-      <div class="setting-help">Skip titles released before this year</div>
-    </div>
-    <div class="setting-item">
-      <label><input type="checkbox" name="check_tmdb_thresholds" {% if config.check_tmdb_thresholds %}checked{% endif %}/> Check Thresholds</label>
-      <div class="setting-help">Enable rating/vote/popularity threshold checks</div>
-    </div>
-    <div class="setting-item">
-      <label for="minimum_tmdb_rating">Minimum Rating</label>
-      <input id="minimum_tmdb_rating" type="number" step="0.1" name="minimum_tmdb_rating" value="{{ config.minimum_tmdb_rating }}"/>
-      <div class="setting-help">Skip titles with an average rating below this</div>
-    </div>
-    <div class="setting-item">
-      <label for="minimum_tmdb_votes">Minimum Votes</label>
-      <input id="minimum_tmdb_votes" type="number" name="minimum_tmdb_votes" value="{{ config.minimum_tmdb_votes }}"/>
-      <div class="setting-help">Skip titles with fewer votes than this</div>
-    </div>
-    <div class="setting-item">
-      <label for="minimum_tmdb_popularity">Minimum Popularity</label>
-      <input id="minimum_tmdb_popularity" type="number" step="0.1" name="minimum_tmdb_popularity" value="{{ config.minimum_tmdb_popularity }}"/>
-      <div class="setting-help">Skip titles with popularity below this</div>
-    </div>
-  </div>
-
-
-  <!-- NFO Options -->
-  <div class="settings-group">
-    <h3>NFO Options</h3>
-    <div class="setting-item">
-      <label><input type="checkbox" name="write_nfo" {% if config.write_nfo %}checked{% endif %}/> Write NFO</label>
-      <div class="setting-help">Enable generation of NFO metadata files</div>
-    </div>
-    <div class="setting-item">
-      <label><input type="checkbox" name="write_nfo_only_if_not_exists" {% if config.write_nfo_only_if_not_exists %}checked{% endif %}/> Write NFO Only If Not Exists</label>
-      <div class="setting-help">Only write NFO files if they don't already exist</div>
-    </div>
-    <div class="setting-item">
-      <label><input type="checkbox" name="update_tv_series_nfo" {% if config.update_tv_series_nfo %}checked{% endif %}/> Write TV Series NFO If Exists</label>
-      <div class="setting-help">Update the TV series NFO even if already exists</div>
-    </div>
-  </div>
-
-  <!-- Subtitles -->
-  <div class="settings-group">
-    <h3>Subtitles</h3>
-    <div class="setting-item">
-      <label><input type="checkbox" name="opensubtitles_download" {% if config.opensubtitles_download %}checked{% endif %}/> OpenSubtitles Download</label>
-      <div class="setting-help">Enable downloading subtitles from OpenSubtitles</div>
-    </div>
-    <div class="setting-item">
-      <label for="opensubtitles_app_name">App Name</label>
-      <input id="opensubtitles_app_name" type="text" name="opensubtitles_app_name" value="{{ config.opensubtitles_app_name or '' }}"/>
-      <div class="setting-help">App name for OpenSubtitles API</div>
-    </div>
-    <div class="setting-item">
-      <label for="opensubtitles_api_key">API Key</label>
-      <div style="display: flex; align-items: center;">
-        <input id="opensubtitles_api_key" type="password" name="opensubtitles_api_key" value="{{ config.opensubtitles_api_key or '' }}"/>
-        <button type="button" class="toggle-password" data-target="opensubtitles_api_key" style="margin-left:8px;">Show</button>
-      </div>
-      <div class="setting-help">API key for OpenSubtitles service</div>
-    </div>
-    <div class="setting-item">
-      <label for="opensubtitles_username">Username</label>
-      <input id="opensubtitles_username" type="text" name="opensubtitles_username" value="{{ config.opensubtitles_username or '' }}"/>
-      <div class="setting-help">Username for OpenSubtitles service</div>
-    </div>
-    <div class="setting-item">
-      <label for="opensubtitles_password">Password</label>
-      <div style="display: flex; align-items: center;">
-        <input id="opensubtitles_password" type="password" name="opensubtitles_password" value="{{ config.opensubtitles_password or '' }}"/>
-        <button type="button" class="toggle-password" data-target="opensubtitles_password" style="margin-left:8px;">Show</button>
-      </div>
-      <div class="setting-help">Password for OpenSubtitles service</div>
-    </div>
-  </div>
-
-  <!-- ─── Scheduler Options ────────────────────────────────────────────── -->
-  <div class="settings-group">
-    <h3>Scheduled Task</h3>
-
-    <div class="setting-item">
-      <label>
-        <input 
-          type="checkbox" 
-          name="enable_scheduled_task"
-          {% if config.enable_scheduled_task %}checked{% endif %}
-        />
-        Enable Scheduled Task
-      </label>
-      <div class="setting-help">
-        Toggle automatic daily runs on/off
-      </div>
-    </div>
-
-    <div class="setting-item">
-      <label for="scheduled_hour">Hour (0–23)</label>
-      <input
-        id="scheduled_hour"
-        type="number"
-        name="scheduled_hour"
-        min="0" max="23"
-        value="{{ config.scheduled_hour }}"
-        required
-      />
-    </div>
-
-    <div class="setting-item">
-      <label for="scheduled_minute">Minute (0–59)</label>
-      <input
-        id="scheduled_minute"
-        type="number"
-        name="scheduled_minute"
-        min="0" max="59"
-        value="{{ config.scheduled_minute }}"
-        required
-      />
-    </div>
-  </div>  
-
-  <button type="submit" class="save-button">Save Settings</button>
-</form>
-
-<script>
-  const API_BASE = '{{ request.url_for("settings.get_settings") }}';
-  
-  async function loadSettings() {
-    try {
-      const res = await fetch(API_BASE);
-      if (!res.ok) throw new Error(await res.text());
-      const cfg = await res.json();
-      console.log("Settings payload:", cfg);
-      
-      // CORE CONNECTION
-      document.getElementById('api_base').value        = cfg.api_base;
-      document.getElementById('token_url').value       = cfg.token_url;
-      document.getElementById('access').value          = cfg.access || '';
-      document.getElementById('refresh').value         = cfg.refresh || '';
-  
-      // CREDENTIALS
-      document.getElementById('username').value        = cfg.username;
-      document.getElementById('password').value        = cfg.password;
-  
-      // STREAMING
-      document.getElementById('stream_base_url').value = cfg.stream_base_url;
-      document.querySelector('input[name="skip_stream_check"]').checked      = !!cfg.skip_stream_check;
-      document.querySelector('input[name="only_updated_streams"]').checked   = !!cfg.only_updated_streams;
-      document.getElementById('last_modified_days').value                     = cfg.last_modified_days;
-      document.querySelector('input[name="update_stream_link"]').checked      = !!cfg.update_stream_link;
-  
-      // OUTPUT
-      document.getElementById('output_root').value     = cfg.output_root;
-      document.querySelector('input[name="clean_output_dir"]').checked        = !!cfg.clean_output_dir;
-  
-      // PROCESSING GROUPS
-      document.querySelector('input[name="process_movies_groups"]').checked    = !!cfg.process_movies_groups;
-      document.getElementById('movies_groups_raw').value     = (cfg.movies_groups||[]).join(',');
-      document.querySelector('input[name="process_tv_series_groups"]').checked = !!cfg.process_tv_series_groups;
-      document.getElementById('tv_series_groups_raw').value  = (cfg.tv_series_groups||[]).join(',');
-      document.querySelector('input[name="process_groups_24_7"]').checked      = !!cfg.process_groups_24_7;
-      document.getElementById('groups_24_7_raw').value      = (cfg.groups_24_7||[]).join(',');
-      document.getElementById('remove_strings_raw').value   = (cfg.remove_strings||[]).join(',');
-
-      // … after your other cfg.* assignments …
-      document.getElementById('batch_size').value            = cfg.batch_size;
-      document.getElementById('batch_delay_seconds').value   = cfg.batch_delay_seconds;
-      document.getElementById('concurrent_requests').value   = cfg.concurrent_requests;
-      document.getElementById('tmdb_rate_limit').value       = cfg.tmdb_rate_limit;      
-
-      // FILENAME PARSING
-      document.getElementById('movie_year_regex').value      = cfg.movie_year_regex;
-      document.getElementById('tv_series_episode_regex').value = cfg.tv_series_episode_regex;
-  
-      // TMDB OPTIONS
-      document.getElementById('tmdb_api_key').value         = cfg.tmdb_api_key || '';
-      document.getElementById('tmdb_language').value        = cfg.tmdb_language;
-      document.querySelector('input[name="tmdb_download_images"]').checked    = !!cfg.tmdb_download_images;
-      document.getElementById('tmdb_image_size').value      = cfg.tmdb_image_size;
-      document.querySelector('input[name="tmdb_create_not_found"]').checked  = !!cfg.tmdb_create_not_found;
-      document.getElementById('minimum_year').value         = cfg.minimum_year;
-      document.querySelector('input[name="check_tmdb_thresholds"]').checked   = !!cfg.check_tmdb_thresholds;
-      document.getElementById('minimum_tmdb_rating').value  = cfg.minimum_tmdb_rating;
-      document.getElementById('minimum_tmdb_votes').value   = cfg.minimum_tmdb_votes;
-      document.getElementById('minimum_tmdb_popularity').value = cfg.minimum_tmdb_popularity;
-  
-      // NFO OPTIONS
-      document.querySelector('input[name="write_nfo"]').checked               = !!cfg.write_nfo;
-      document.querySelector('input[name="write_nfo_only_if_not_exists"]').checked = !!cfg.write_nfo_only_if_not_exists;
-      document.querySelector('input[name="update_tv_series_nfo"]').checked    = !!cfg.update_tv_series_nfo;
-  
-      // SUBTITLES
-      document.querySelector('input[name="opensubtitles_download"]').checked  = !!cfg.opensubtitles_download;
-      document.getElementById('opensubtitles_app_name').value   = cfg.opensubtitles_app_name || '';
-      document.getElementById('opensubtitles_api_key').value    = cfg.opensubtitles_api_key || '';
-      document.getElementById('opensubtitles_username').value   = cfg.opensubtitles_username || '';
-      document.getElementById('opensubtitles_password').value   = cfg.opensubtitles_password || '';
-  
-      // SCHEDULER
-      document.querySelector('input[name="enable_scheduled_task"]').checked = !!cfg.enable_scheduled_task;
-      document.getElementById('scheduled_hour').value    = cfg.scheduled_hour;
-      document.getElementById('scheduled_minute').value  = cfg.scheduled_minute;
-  
-    } catch (err) {
-      console.error('Failed to load settings:', err);
-      alert('Could not load settings');
-    }
+<form class="settings-form" id="settingsForm"><style>
+  .settings-group.collapsed .collapsible-content {
+    display: none;
   }
-  
-  // document.addEventListener('DOMContentLoaded', loadSettings);
-  
-  document.getElementById('settingsForm').addEventListener('submit', async e => {
-    e.preventDefault();
-  
-    const payload = {
-      api_base:         document.getElementById('api_base').value,
-      token_url:        document.getElementById('token_url').value,
-      access:           document.getElementById('access').value,
-      refresh:          document.getElementById('refresh').value,
-      username:         document.getElementById('username').value,
-      password:         document.getElementById('password').value,
-      stream_base_url:  document.getElementById('stream_base_url').value,
-      skip_stream_check:      document.querySelector('input[name="skip_stream_check"]').checked,
-      only_updated_streams:   document.querySelector('input[name="only_updated_streams"]').checked,
-      last_modified_days:     Number(document.getElementById('last_modified_days').value),
-      update_stream_link:     document.querySelector('input[name="update_stream_link"]').checked,
-      output_root:            document.getElementById('output_root').value,
-      clean_output_dir:       document.querySelector('input[name="clean_output_dir"]').checked,
-      process_movies_groups:  document.querySelector('input[name="process_movies_groups"]').checked,
-      movies_groups:          document.getElementById('movies_groups_raw').value.split(',').map(s=>s.trim()).filter(Boolean),
-      process_tv_series_groups:document.querySelector('input[name="process_tv_series_groups"]').checked,
-      tv_series_groups:       document.getElementById('tv_series_groups_raw').value.split(',').map(s=>s.trim()).filter(Boolean),
-      process_groups_24_7:    document.querySelector('input[name="process_groups_24_7"]').checked,
-      groups_24_7:            document.getElementById('groups_24_7_raw').value.split(',').map(s=>s.trim()).filter(Boolean),
-      remove_strings:         document.getElementById('remove_strings_raw').value.split(',').map(s=>s.trim()).filter(Boolean),
-      movie_year_regex:       document.getElementById('movie_year_regex').value,
-      tv_series_episode_regex:document.getElementById('tv_series_episode_regex').value,
-      // … existing keys …
-      batch_size:           Number(document.getElementById('batch_size').value),
-      batch_delay_seconds:  Number(document.getElementById('batch_delay_seconds').value),
-      concurrent_requests:  Number(document.getElementById('concurrent_requests').value),
-      tmdb_rate_limit:      Number(document.getElementById('tmdb_rate_limit').value),
+  .collapsible-header {
+    cursor: pointer;
+    background-color: var(--bg-tertiary); /* use contrast background */
+    padding: 10px 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    border: 1px solid var(--border-color); /* use defined border */
+    border-radius: 6px 6px 0 0;
+    transition: background-color 0.3s;
+  }
+  .settings-group {
+    border: 1px solid var(--border-color);
+    margin-bottom: 10px;
+    padding: 0;
+  }
+  .collapsible-content {
+    padding: 10px;
+  }
+</style>
+<!-- Core Connection -->
+<div class="settings-group collapsed"><div class="collapsible-header">Core Connection</div><div class="collapsible-content">
 
-      tmdb_api_key:           document.getElementById('tmdb_api_key').value,
-      tmdb_language:          document.getElementById('tmdb_language').value,
-      tmdb_download_images:   document.querySelector('input[name="tmdb_download_images"]').checked,
-      tmdb_image_size:        document.getElementById('tmdb_image_size').value,
-      tmdb_create_not_found:  document.querySelector('input[name="tmdb_create_not_found"]').checked,
-      minimum_year:           Number(document.getElementById('minimum_year').value),
-      check_tmdb_thresholds:  document.querySelector('input[name="check_tmdb_thresholds"]').checked,
-      minimum_tmdb_rating:    Number(document.getElementById('minimum_tmdb_rating').value),
-      minimum_tmdb_votes:     Number(document.getElementById('minimum_tmdb_votes').value),
-      minimum_tmdb_popularity:Number(document.getElementById('minimum_tmdb_popularity').value),
-      write_nfo:              document.querySelector('input[name="write_nfo"]').checked,
-      write_nfo_only_if_not_exists: document.querySelector('input[name="write_nfo_only_if_not_exists"]').checked,
-      update_tv_series_nfo:   document.querySelector('input[name="update_tv_series_nfo"]').checked,
-      opensubtitles_download: document.querySelector('input[name="opensubtitles_download"]').checked,
-      opensubtitles_app_name: document.getElementById('opensubtitles_app_name').value,
-      opensubtitles_api_key:  document.getElementById('opensubtitles_api_key').value,
-      opensubtitles_username: document.getElementById('opensubtitles_username').value,
-      opensubtitles_password: document.getElementById('opensubtitles_password').value,
-      enable_scheduled_task:  document.querySelector('input[name="enable_scheduled_task"]').checked,
-      scheduled_hour:         Number(document.getElementById('scheduled_hour').value),
-      scheduled_minute:       Number(document.getElementById('scheduled_minute').value)
-    };
-  
-    try {
-      const res = await fetch(API_BASE, {
-        method:  'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(payload)
+<div class="setting-item">
+<label for="api_base">API Base URL</label>
+<input id="api_base" name="api_base" required="" type="text" value=""/>
+<div class="setting-help">Base URL of the STRMGen API (e.g., http://host:port)</div>
+</div>
+<div class="setting-item">
+<label for="token_url">Token URL</label>
+<input id="token_url" name="token_url" required="" type="text" value=""/>
+<div class="setting-help">Path to the authentication token endpoint (e.g., /api/accounts/token/)</div>
+</div>
+<div class="setting-item">
+<label for="access">Dispatcharr Access Token</label>
+<input id="access" name="access" type="password" value=""/>
+<div class="setting-help">Dispatcharr access token</div>
+</div>
+<div class="setting-item">
+<label for="refresh">Dispatcharr Refresh Token</label>
+<input id="refresh" name="refresh" type="password" value=""/>
+<div class="setting-help">Dispatcharr refresh token</div>
+</div>
+</div></div>
+<!-- Credentials -->
+<div class="settings-group collapsed"><div class="collapsible-header">Credentials</div><div class="collapsible-content">
+
+<div class="setting-item">
+<label for="username">Username</label>
+<input id="username" name="username" required="" type="text" value=""/>
+<div class="setting-help">Username for API authentication</div>
+</div>
+<div class="setting-item">
+<label for="password">Password</label>
+<div style="display:flex; align-items:center;">
+<input id="password" name="password" required="" type="password" value=""/>
+<button class="toggle-password" data-target="password" style="margin-left:8px;" type="button">Show</button>
+</div>
+<div class="setting-help">Password for API authentication</div>
+</div>
+</div></div>
+<!-- Streaming -->
+<div class="settings-group collapsed"><div class="collapsible-header">Streaming</div><div class="collapsible-content">
+
+<div class="setting-item">
+<label for="stream_base_url">Stream Base URL</label>
+<input id="stream_base_url" name="stream_base_url" required="" type="text" value=""/>
+<div class="setting-help">Base path for streaming endpoints (e.g., /proxy/ts/stream/)</div>
+</div>
+<div class="setting-item">
+<input name="skip_stream_check" type="hidden" value="false"/>
+<label><input name="skip_stream_check" type="checkbox"> Skip Stream Check</input></label>
+<div class="setting-help">Skip validating stream availability</div>
+</div>
+<div class="setting-item">
+<input name="only_updated_streams" type="hidden" value="false"/>
+<label><input name="only_updated_streams" type="checkbox"> Only Updated Streams</input></label>
+<div class="setting-help">Process only streams that have changed since last run</div>
+</div>
+<div class="setting-item">
+<label for="last_modified_days">Max Stream Age (days)</label>
+<input id="last_modified_days" min="0" name="last_modified_days" type="number" value=""/>
+<div class="setting-help">Skip any stream older than this many days (0 = no filter)</div>
+</div>
+<div class="setting-item">
+<input name="update_stream_link" type="hidden" value="false"/>
+<label><input name="update_stream_link" type="checkbox"> Update Stream Link</input></label>
+<div class="setting-help">Update stream URLs instead of skipping if unchanged</div>
+</div>
+</div></div>
+<!-- Output -->
+<div class="settings-group collapsed"><div class="collapsible-header">Output</div><div class="collapsible-content">
+
+<div class="setting-item">
+<label for="output_root">Output Root</label>
+<input id="output_root" name="output_root" required="" type="text" value=""/>
+<div class="setting-help">Root directory where output files will be written</div>
+</div>
+<div class="setting-item">
+<input name="clean_output_dir" type="hidden" value="false"/>
+<label><input name="clean_output_dir" type="checkbox"> Clean Output Directory</input></label>
+<div class="setting-help">Remove and recreate output directory on each run</div>
+</div>
+</div></div>
+<!-- Processing Groups -->
+<div class="settings-group collapsed"><div class="collapsible-header">Processing Groups</div><div class="collapsible-content">
+
+<div class="setting-item">
+<input name="process_movies_groups" type="hidden" value="false"/>
+<label><input name="process_movies_groups" type="checkbox"> Process Movie Groups</input></label>
+<div class="setting-help">Enable processing of movie groups</div>
+</div>
+<div class="setting-item">
+<label for="movies_groups_raw">Movie Groups (comma‑sep)</label>
+<input id="movies_groups_raw" name="movies_groups_raw" type="text" value=""/>
+<div class="setting-help">Comma‑separated patterns for movie groups</div>
+</div>
+<div class="setting-item">
+<input name="process_tv_series_groups" type="hidden" value="false"/>
+<label><input name="process_tv_series_groups" type="checkbox"> Process TV Series Groups</input></label>
+<div class="setting-help">Enable processing of TV series groups</div>
+</div>
+<div class="setting-item">
+<label for="tv_series_groups_raw">TV Series Groups (comma‑sep)</label>
+<input id="tv_series_groups_raw" name="tv_series_groups_raw" type="text" value=""/>
+<div class="setting-help">Comma‑separated patterns for TV series groups</div>
+</div>
+<div class="setting-item">
+<input name="process_groups_24_7" type="hidden" value="false"/>
+<label><input name="process_groups_24_7" type="checkbox"> Process 24/7 Groups</input></label>
+<div class="setting-help">Enable processing of live 24/7 channels</div>
+</div>
+<div class="setting-item">
+<label for="groups_24_7_raw">24/7 Groups (comma‑sep)</label>
+<input id="groups_24_7_raw" name="groups_24_7_raw" type="text" value=""/>
+<div class="setting-help">Comma‑separated patterns for 24/7 groups</div>
+</div>
+<div class="setting-item">
+<label for="remove_strings_raw">Remove Strings (comma‑sep)</label>
+<input id="remove_strings_raw" name="remove_strings_raw" type="text" value=""/>
+<div class="setting-help">Comma‑separated substrings to strip from titles</div>
+</div>
+</div></div>
+<!-- Batch Settings -->
+<div class="settings-group collapsed"><div class="collapsible-header">Batch Settings</div><div class="collapsible-content">
+
+<div class="setting-item">
+<label for="batch_size">Batch Size</label>
+<input id="batch_size" min="1" name="batch_size" required="" type="number" value=""/>
+<div class="setting-help">Number of items to process per batch</div>
+</div>
+<div class="setting-item">
+<label for="batch_delay_seconds">Batch Delay (seconds)</label>
+<input id="batch_delay_seconds" min="0" name="batch_delay_seconds" required="" type="number" value=""/>
+<div class="setting-help">Pause between each batch of requests</div>
+</div>
+<div class="setting-item">
+<label for="concurrent_requests">Concurrent Requests</label>
+<input id="concurrent_requests" min="1" name="concurrent_requests" required="" type="number" value=""/>
+<div class="setting-help">Max parallel TMDb requests</div>
+</div>
+<div class="setting-item">
+<label for="tmdb_rate_limit">TMDb Rate Limit (per minute)</label>
+<input id="tmdb_rate_limit" min="1" name="tmdb_rate_limit" required="" type="number" value=""/>
+<div class="setting-help">TMDb API calls allowed per minute</div>
+</div>
+</div></div>
+<!-- Filename Parsing -->
+<div class="settings-group collapsed"><div class="collapsible-header">Filename Parsing</div><div class="collapsible-content">
+
+<div class="setting-item">
+<label for="movie_year_regex">Movie Title‑Year Regex</label>
+<input id="movie_year_regex" name="movie_year_regex" required="" type="text" value=""/>
+<div class="setting-help">Regex to extract title/year (named groups “title” and “year”)</div>
+</div>
+<div class="setting-item">
+<label for="tv_series_episode_regex">TV Season/Episode Regex</label>
+<input id="tv_series_episode_regex" name="tv_series_episode_regex" required="" type="text" value=""/>
+<div class="setting-help">Regex to extract season/episode (named groups “season” and “episode”)</div>
+</div>
+</div></div>
+<!-- TMDb Options -->
+<div class="settings-group collapsed"><div class="collapsible-header">TMDb Options</div><div class="collapsible-content">
+
+<div class="setting-item">
+<label for="tmdb_api_key">TMDb API Key</label>
+<div style="display:flex; align-items:center;">
+<input id="tmdb_api_key" name="tmdb_api_key" type="password" value=""/>
+<button class="toggle-password" data-target="tmdb_api_key" style="margin-left:8px;" type="button">Show</button>
+</div>
+<div class="setting-help">Your TMDb API key for metadata lookup (optional)</div>
+</div>
+<div class="setting-item">
+<label for="tmdb_language">Language</label>
+<input id="tmdb_language" name="tmdb_language" type="text" value=""/>
+<div class="setting-help">Language code for TMDb metadata (e.g., en-US)</div>
+</div>
+<div class="setting-item">
+<input name="tmdb_download_images" type="hidden" value="false"/>
+<label><input name="tmdb_download_images" type="checkbox"> Download Images</input></label>
+<div class="setting-help">Download poster and fanart images from TMDb</div>
+</div>
+<div class="setting-item">
+<label for="tmdb_image_size">Image Size</label>
+<input id="tmdb_image_size" name="tmdb_image_size" type="text" value=""/>
+<div class="setting-help">Preferred image size for TMDb images (e.g., original)</div>
+</div>
+<div class="setting-item">
+<input name="tmdb_create_not_found" type="hidden" value="false"/>
+<label><input name="tmdb_create_not_found" type="checkbox"> Create Placeholder?</input></label>
+<div class="setting-help">Placeholder when TMDb has no art</div>
+</div>
+<div class="setting-item">
+<label for="minimum_year">Minimum Year</label>
+<input id="minimum_year" name="minimum_year" type="number" value=""/>
+<div class="setting-help">Skip titles released before this year</div>
+</div>
+<div class="setting-item">
+<input name="check_tmdb_thresholds" type="hidden" value="false"/>
+<label><input name="check_tmdb_thresholds" type="checkbox"> Check Thresholds</input></label>
+<div class="setting-help">Enable rating/vote/popularity checks</div>
+</div>
+<div class="setting-item">
+<label for="minimum_tmdb_rating">Minimum Rating</label>
+<input id="minimum_tmdb_rating" name="minimum_tmdb_rating" step="0.1" type="number" value=""/>
+<div class="setting-help">Skip titles below this average rating</div>
+</div>
+<div class="setting-item">
+<label for="minimum_tmdb_votes">Minimum Votes</label>
+<input id="minimum_tmdb_votes" name="minimum_tmdb_votes" type="number" value=""/>
+<div class="setting-help">Skip titles with fewer votes</div>
+</div>
+<div class="setting-item">
+<label for="minimum_tmdb_popularity">Minimum Popularity</label>
+<input id="minimum_tmdb_popularity" name="minimum_tmdb_popularity" step="0.1" type="number" value=""/>
+<div class="setting-help">Skip titles with low popularity</div>
+</div>
+</div></div>
+<!-- NFO Options -->
+<div class="settings-group collapsed"><div class="collapsible-header">NFO Options</div><div class="collapsible-content">
+
+<div class="setting-item">
+<input name="write_nfo" type="hidden" value="false"/>
+<label><input name="write_nfo" type="checkbox"> Write NFO</input></label>
+<div class="setting-help">Enable generation of NFO metadata files</div>
+</div>
+<div class="setting-item">
+<input name="write_nfo_only_if_not_exists" type="hidden" value="false"/>
+<label><input name="write_nfo_only_if_not_exists" type="checkbox"> Only If Not Exists</input></label>
+<div class="setting-help">Don't overwrite existing NFO files</div>
+</div>
+<div class="setting-item">
+<input name="update_tv_series_nfo" type="hidden" value="false"/>
+<label><input name="update_tv_series_nfo" type="checkbox"> Update TV Series NFO</input></label>
+<div class="setting-help">Refresh show-level NFO even if it exists</div>
+</div>
+</div></div>
+<!-- Subtitles -->
+<div class="settings-group collapsed"><div class="collapsible-header">Subtitles</div><div class="collapsible-content">
+
+<div class="setting-item">
+<input name="opensubtitles_download" type="hidden" value="false"/>
+<label><input name="opensubtitles_download" type="checkbox"> OpenSubtitles Download</input></label>
+<div class="setting-help">Enable downloading subtitles from OpenSubtitles</div>
+</div>
+<div class="setting-item">
+<label for="opensubtitles_app_name">App Name</label>
+<input id="opensubtitles_app_name" name="opensubtitles_app_name" type="text" value=""/>
+<div class="setting-help">App name for OpenSubtitles API</div>
+</div>
+<div class="setting-item">
+<label for="opensubtitles_api_key">API Key</label>
+<div style="display:flex; align-items:center;">
+<input id="opensubtitles_api_key" name="opensubtitles_api_key" type="password" value=""/>
+<button class="toggle-password" data-target="opensubtitles_api_key" style="margin-left:8px;" type="button">Show</button>
+</div>
+<div class="setting-help">API key for OpenSubtitles service</div>
+</div>
+<div class="setting-item">
+<label for="opensubtitles_username">Username</label>
+<input id="opensubtitles_username" name="opensubtitles_username" type="text" value=""/>
+<div class="setting-help">Username for OpenSubtitles service</div>
+</div>
+<div class="setting-item">
+<label for="opensubtitles_password">Password</label>
+<div style="display:flex; align-items:center;">
+<input id="opensubtitles_password" name="opensubtitles_password" type="password" value=""/>
+<button class="toggle-password" data-target="opensubtitles_password" style="margin-left:8px;" type="button">Show</button>
+</div>
+<div class="setting-help">Password for OpenSubtitles service</div>
+</div>
+</div></div>
+<!-- Scheduled Task -->
+<div class="settings-group collapsed"><div class="collapsible-header">Scheduled Task</div><div class="collapsible-content">
+
+<div class="setting-item">
+<input name="enable_scheduled_task" type="hidden" value="false"/>
+<label><input name="enable_scheduled_task" type="checkbox"> Enable Scheduled Task</input></label>
+<div class="setting-help">Toggle automatic daily runs on/off</div>
+</div>
+<div class="setting-item">
+<label for="scheduled_hour">Hour (0–23)</label>
+<input id="scheduled_hour" max="23" min="0" name="scheduled_hour" required="" type="number" value=""/>
+</div>
+<div class="setting-item">
+<label for="scheduled_minute">Minute (0–59)</label>
+<input id="scheduled_minute" max="59" min="0" name="scheduled_minute" required="" type="number" value=""/>
+</div>
+</div></div>
+<div class="settings-group collapsed"><div class="collapsible-header">Emby</div><div class="collapsible-content">
+
+<div class="setting-item">
+<label for="emby_api_url">Emby API URL</label>
+<input id="emby_api_url" name="emby_api_url" required="" type="text" value=""/>
+<div class="setting-help">Base URL of your Emby server (e.g. http://host:8096/emby)</div>
+</div>
+<div class="setting-item">
+  <label for="emby_api_key">Emby API Key</label>
+  <div style="display:flex; align-items:center;">
+    <input id="emby_api_key" name="emby_api_key" type="password" value=""/>
+    <button type="button" class="toggle-password" data-target="emby_api_key" style="margin-left:8px;">Show</button>
+  </div>
+  <div class="setting-help">Your Emby server token</div>
+</div>
+<div class="setting-item">
+<label for="emby_movie_library_id">Emby Movie Library ID</label>
+<input id="emby_movie_library_id" name="emby_movie_library_id" type="number" value=""/>
+<div class="setting-help">The VirtualFolder.Id for your “Movies” library</div>
+</div>
+</div></div>
+<button class="save-button" type="submit">Save Settings</button>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const headers = document.querySelectorAll(".collapsible-header");
+    headers.forEach(header => {
+      header.addEventListener("click", () => {
+        const group = header.closest(".settings-group");
+        group.classList.toggle("collapsed");
       });
-      if (!res.ok) throw new Error(await res.text());
-      alert('Settings saved successfully');
-    } catch (err) {
-      console.error('Save failed:', err);
-      alert('Failed to save settings');
-    }
-  });
-  </script>
-  
-  <script>
-  document.querySelectorAll('.toggle-password').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const target = document.getElementById(btn.dataset.target);
-      if (!target) return;
-      if (target.type === 'password') {
-        target.type = 'text';
-        btn.textContent = 'Hide';
-      } else {
-        target.type = 'password';
-        btn.textContent = 'Show';
-      }
     });
   });
-  </script>
+</script>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const headers = document.querySelectorAll(".collapsible-header");
+    headers.forEach(header => {
+      header.addEventListener("click", () => {
+        const group = header.closest(".settings-group");
+        group.classList.toggle("collapsed");
+      });
+    });
+  });
+</script></form>
+
+{% include "settings_scripts.html" %}
 {% endblock %}

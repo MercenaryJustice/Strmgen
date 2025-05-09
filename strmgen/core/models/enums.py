@@ -5,4 +5,4 @@ from enum import Enum
 class MediaType(Enum):
     MOVIE = "Movies"
     TV   = "TV Shows"
-    _24_7   = "24-7"
+    STREAM_24_7   = "24-7"

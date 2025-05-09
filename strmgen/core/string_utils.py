@@ -1,23 +1,27 @@
-# strmgen/string_utils.py
+# strmgen/core/string_utils.py
 
 import re
 from urllib.parse import urlsplit, urlunsplit, quote, parse_qsl, urlencode
-from .config import settings
+
+from strmgen.core.config import get_settings
 
 # ─── Filename Utilities ───────────────────────────────────────────────────────
 
 def clean_name(name: str) -> str:
     """Sanitize and strip optional tokens from a name."""
+    settings = get_settings()
     if settings.remove_strings:
         for token in settings.remove_strings:
             name = name.replace(token, "")
     return re.sub(r'[<>:"/\\|?*]', "", name)
 
+
 def remove_prefixes(title: str) -> str:
+    """Remove configured prefixes from a title and strip whitespace."""
+    settings = get_settings()
     for bad in settings.remove_strings:
         title = title.replace(bad, "").strip()
     return title        
-
 
 
 def fix_url_string(raw_url: str) -> str:

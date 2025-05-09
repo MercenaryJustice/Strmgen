@@ -11,11 +11,11 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.events import EVENT_JOB_EXECUTED, JobExecutionEvent
 from more_itertools import chunked
 
-from strmgen.core.config import settings, CONFIG_PATH, _json_cfg
+from strmgen.core.config import get_settings
 from strmgen.core.auth import get_auth_headers
 from strmgen.services.streams import fetch_streams_by_group_name
 from strmgen.services.service_24_7 import process_24_7
-from strmgen.services.movies import process_movies
+from strmgen.services.movies import process_movies, movie_cache
 from strmgen.services.tv import process_tv
 from strmgen.core.logger import setup_logger, notify_progress
 from strmgen.core.models.enums import MediaType
@@ -24,7 +24,7 @@ from strmgen.core.control import set_processor_task, is_running
 
 logger = setup_logger(__name__)
 
-# ─── Scheduler & run‑history ────────────────────────────────────────────────
+# ─── Scheduler & run‐history ────────────────────────────────────────────────
 scheduler = AsyncIOScheduler()
 schedule_history: dict[str, datetime] = {}
 
@@ -32,20 +32,8 @@ def _record_daily_run(event: JobExecutionEvent) -> None:
     if event.job_id == "daily_run" and event.exception is None:
         now = datetime.now(timezone.utc)
         schedule_history["daily_run"] = now
-        _json_cfg["last_run"] = now.isoformat()
-        asyncio.create_task(_persist_cfg())
 
-async def _persist_cfg() -> None:
-    try:
-        await asyncio.to_thread(
-            CONFIG_PATH.write_text,
-            json.dumps(_json_cfg, indent=2),
-            "utf-8"
-        )
-    except Exception:
-        logger.exception("Failed to persist last_run to config.json")
-
-# ─── Background‑task control ────────────────────────────────────────────────
+# ─── Background‐task control ────────────────────────────────────────────────
 processor_task: asyncio.Task | None = None
 MAIN_LOOP: asyncio.AbstractEventLoop | None = None
 
@@ -69,9 +57,9 @@ def stop_background_run() -> bool:
         return True
     return False
 
-
 # ─── Core async pipeline ────────────────────────────────────────────────────
 async def run_pipeline():
+    settings = get_settings()
     logger.info("Pipeline starting")
     try:
         headers = await get_auth_headers()
@@ -91,18 +79,32 @@ async def run_pipeline():
             return
 
         # 2) Filter groups by configured patterns
-        matched_24_7 = [
-            g for g in all_groups
-            if settings.process_groups_24_7 and any(fnmatch.fnmatch(g, pat) for pat in settings.groups_24_7)
-        ]
-        matched_tv = [
-            g for g in all_groups
-            if settings.process_tv_series_groups and any(fnmatch.fnmatch(g, pat) for pat in settings.tv_series_groups)
-        ]
-        matched_movies = [
-            g for g in all_groups
-            if settings.process_movies_groups and any(fnmatch.fnmatch(g, pat) for pat in settings.movies_groups)
-        ]
+        if settings.process_groups_24_7:
+            matched_24_7 = [
+                g for g in all_groups
+                if any(fnmatch.fnmatch(g, pat) for pat in settings.groups_24_7)
+            ]
+        else:
+            matched_24_7 = []
+        if settings.process_tv_series_groups:
+            matched_tv = [
+                g for g in all_groups
+                if any(fnmatch.fnmatch(g, pat) for pat in settings.tv_series_groups)
+            ]
+        else:
+            matched_tv = []
+        if settings.process_movies_groups:
+            matched_movies = [
+                g for g in all_groups
+                if any(fnmatch.fnmatch(g, pat) for pat in settings.movies_groups)
+            ]
+        else:
+            matched_movies = []
+
+        logger.info(f"Matched 24/7 groups ({len(matched_24_7)}), TV groups ({len(matched_tv)}), Movie groups ({len(matched_movies)})")
+        if not (matched_24_7 or matched_tv or matched_movies):
+            logger.info("No groups matched; pipeline will not run")
+            return
 
         # Helper to process one category of groups
         async def process_category(groups, proc_fn, media_type):
@@ -118,8 +120,15 @@ async def run_pipeline():
                         logger.info("Pipeline stopped during batch %d", idx)
                         return
                     await asyncio.sleep(settings.batch_delay_seconds)
-                    logger.info("[BATCH] Completed %d/%d batches for group %s", idx, len(batches), grp)
-                    notify_progress(media_type=media_type, group=grp, current=idx, total=len(batches))
+                    notify_progress(
+                        media_type=media_type,
+                        group=grp,
+                        current=idx,
+                        total=len(batches),
+                    )
+                logger.info(f"[PIPELINE] ✅ Completed processing {media_type} streams for group: {grp}")
+            if proc_fn == process_movies:
+                movie_cache.clear()
 
         async def _process_batch(batch, grp, proc_fn, media_type, headers):
             sem = asyncio.Semaphore(settings.concurrent_requests)
@@ -135,25 +144,26 @@ async def run_pipeline():
             await asyncio.gather(*(worker(i, total, s) for i, s in enumerate(batch, start=1)))
 
         # 3) Run categories
-        await process_category(matched_24_7, process_24_7, MediaType._24_7)
-        await process_category(matched_movies, process_movies, MediaType.MOVIE)
+        if matched_24_7:
+            await process_category(matched_24_7, process_24_7, MediaType.STREAM_24_7)
+        if matched_movies:
+            await process_category(matched_movies, process_movies, MediaType.MOVIE)
 
-        for grp in matched_tv:
-            if not is_running():
-                break
-            streams = await fetch_streams_by_group_name(grp, headers, MediaType.TV)
-            logger.info("TV group %r has %d streams; delegating to process_tv()", grp, len(streams))
-            try:
-                await process_tv(streams, grp, headers)
-            except Exception:
-                logger.exception("Fatal error in TV group %r; continuing", grp)
+        if matched_tv:
+            for grp in matched_tv:
+                if not is_running():
+                    break
+                streams = await fetch_streams_by_group_name(grp, headers, MediaType.TV)
+                logger.info("TV group %r has %d streams; delegating to process_tv()", grp, len(streams))
+                try:
+                    await process_tv(streams, grp, headers)
+                except Exception:
+                    logger.exception("Fatal error in TV group %r; continuing", grp)
 
     except asyncio.CancelledError:
         logger.info("Pipeline task was cancelled")
-        return
     except Exception:
         logger.exception("Pipeline aborted due to unexpected error")
-        return
     finally:
         if processor_task and processor_task.cancelled():
             logger.info("Pipeline was cancelled")
@@ -163,6 +173,7 @@ async def run_pipeline():
 # ─── Scheduler setup ────────────────────────────────────────────────────────
 def schedule_on_startup():
     global MAIN_LOOP
+    settings = get_settings()
     MAIN_LOOP = asyncio.get_running_loop()
     scheduler.start()
     if settings.enable_scheduled_task:

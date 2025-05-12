@@ -360,3 +360,23 @@ button {
 .dark-theme .theme-toggle {
   color: var(--text-primary);
 }
+
+.settings-group.collapsed .setting-item {
+  display: none;
+}
+
+.collapsible-header {
+  cursor: pointer;
+  background-color: var(--bg-tertiary);
+  padding: 8px;
+  font-weight: bold;
+  border: 1px solid var(--border-color);
+  margin-bottom: 5px;
+}
+
+.settings-group {
+  border: 1px solid var(--bg-tertiary);
+  margin-bottom: 10px;
+  padding: 5px;
+}
+

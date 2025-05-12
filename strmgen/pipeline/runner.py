@@ -15,7 +15,7 @@ from strmgen.core.config import get_settings
 from strmgen.core.auth import get_auth_headers
 from strmgen.services.streams import fetch_streams_by_group_name
 from strmgen.services.service_24_7 import process_24_7
-from strmgen.services.movies import process_movies
+from strmgen.services.movies import process_movies, movie_cache
 from strmgen.services.tv import process_tv
 from strmgen.core.logger import setup_logger, notify_progress
 from strmgen.core.models.enums import MediaType
@@ -126,6 +126,9 @@ async def run_pipeline():
                         current=idx,
                         total=len(batches),
                     )
+                logger.info(f"[PIPELINE] ✅ Completed processing {media_type} streams for group: {grp}")
+            if proc_fn == process_movies:
+                movie_cache.clear()
 
         async def _process_batch(batch, grp, proc_fn, media_type, headers):
             sem = asyncio.Semaphore(settings.concurrent_requests)

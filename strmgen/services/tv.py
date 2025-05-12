@@ -194,7 +194,6 @@ async def process_tv(
         for idx, batch in enumerate(show_batches, start=1)
     ))
 
-    logger.info(f"{TAG} 🏁 Completed processing TV streams for group: {group}")
 
 async def reprocess_tv(skipped: SkippedStream) -> bool:
     headers = await get_auth_headers()

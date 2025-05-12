@@ -20,6 +20,8 @@ settings = get_settings()
 TITLE_YEAR_RE = settings.MOVIE_TITLE_YEAR_RE
 LOG_TAG = "[MOVIE] 🖼️"
 
+movie_cache = {}
+
 async def process_movies(
     streams: List[DispatcharrStream],
     group: str,
@@ -52,6 +54,15 @@ async def process_movies(
             year = stream.year
             logger.info(f"{LOG_TAG} 🎬 Processing movie: {title}")
 
+            # Check movie_cache
+            if stream.base_path.name in movie_cache:
+                logger.info(f"{LOG_TAG} 🚫 Skipping duplicate (cache): {title}")
+                if stream.base_path.exists():
+                    await asyncio.to_thread(safe_remove, stream.base_path)
+                    logger.info(f"{LOG_TAG} ✂️ Removed path due to duplicate: {stream.base_path}")
+                await mark_skipped("MOVIE", group, {"title": title, "year": year}, stream)
+                return
+
             # 1) Fetch TMDb metadata
             movie = await fetch_movie_details(title=title, year=year)
             if not is_running() or not movie:
@@ -82,6 +93,7 @@ async def process_movies(
                 if stream.base_path.exists():
                     await asyncio.to_thread(safe_remove, stream.base_path)
                     logger.info(f"{LOG_TAG} ✂️ Removed path: {stream.base_path}")
+                await mark_skipped("MOVIE", group, movie, stream)
                 return
 
 
@@ -101,8 +113,10 @@ async def process_movies(
                 logger.info(f"{LOG_TAG} 🔽 Downloading subtitles for: {title}")
                 asyncio.create_task(download_movie_subtitles(movie, stream))
 
+            # ✅ Add to movie_cache
+            movie_cache[stream.base_path.name] = True
+
     await asyncio.gather(*(_process_one(s) for s in streams))
-    logger.info(f"{LOG_TAG} ✅ Completed processing Movie streams for group: {group}")
 
 
 async def reprocess_movie(skipped: SkippedStream) -> bool:

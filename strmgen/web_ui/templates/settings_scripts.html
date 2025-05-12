@@ -53,7 +53,7 @@
       document.getElementById('emby_api_url').value         = cfg.emby_api_url || '';
       document.getElementById('emby_api_key').value         = cfg.emby_api_key || '';
       document.getElementById('emby_movie_library_id').value = cfg.emby_movie_library_id ?? '';
-      
+
       // 1) list of all the bool field names:
       const boolFields = [
         'skip_stream_check','only_updated_streams','update_stream_link',
@@ -152,4 +152,15 @@
     if (input.type === 'password') { input.type = 'text'; btn.textContent='Hide'; }
     else { input.type='password'; btn.textContent='Show'; }
   }));
+</script>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const headers = document.querySelectorAll(".collapsible-header");
+    headers.forEach(header => {
+      header.addEventListener("click", () => {
+        const group = header.closest(".settings-group");
+        group.classList.toggle("collapsed");
+      });
+    });
+  });
 </script>

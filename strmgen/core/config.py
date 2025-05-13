@@ -45,64 +45,64 @@ class Settings(BaseModel):
     refresh: Optional[str]
 
     # Output & directories
-    clean_output_dir: bool
-    output_root:      str
+    clean_output_dir: Optional[bool] = False
+    output_root:      Optional[str] = "/output"
 
     # Filtering
-    process_movies_groups:    bool
-    movies_groups:            List[str]
+    process_movies_groups:    Optional[bool] = True
+    movies_groups:            Optional[List[str]] = None
     movie_year_regex: str = Field(
         r"^(?P<title>.+?)[\s._-]*\((?P<year>\d{4})\)$",
         description="Regex to extract title and year from a filename",
     )    
-    process_tv_series_groups: bool
+    process_tv_series_groups: Optional[bool] = False
     tv_series_episode_regex: str = Field(
         r"^(?P<title>.+?)[\s._-]*\((?P<year>\d{4})\)$",
         description="Regex to extract tv series season and episode from a filename",
     )    
-    tv_series_groups:         List[str]
-    process_groups_24_7:      bool
-    groups_24_7:              List[str]
-    remove_strings:           List[str]
-    skip_stream_check:        bool
-    update_stream_link:       bool
-    only_updated_streams:     bool
+    tv_series_groups:         Optional[List[str]] = None
+    process_groups_24_7:      Optional[bool] = False
+    groups_24_7:              Optional[List[str]] = None
+    remove_strings:           Optional[List[str]] = None
+    skip_stream_check:        Optional[bool] = True
+    update_stream_link:       Optional[bool] = False
+    only_updated_streams:     Optional[bool] = False
     last_modified_days: int = 0
 
     # TMDb
     tmdb_api_key:         Optional[str]
-    tmdb_language:        str
-    tmdb_download_images: bool
-    tmdb_image_size:      str
-    tmdb_create_not_found: bool
-    check_tmdb_thresholds: bool
+    tmdb_language:        Optional[str] = "en-US"
+    tmdb_download_images: Optional[bool] = False
+    tmdb_image_size:      Optional[str] = "original"
+    tmdb_create_not_found: Optional[bool] = True
+    check_tmdb_thresholds: Optional[bool] = False
 
     batch_size: int                = 20
     batch_delay_seconds: float     = 2.0
     concurrent_requests: int       = 5
     tmdb_rate_limit: int           = 40
 
-    minimum_year:           int
-    minimum_tmdb_rating:    float
-    minimum_tmdb_votes:     int
-    minimum_tmdb_popularity: float
+    minimum_year:           Optional[int] = None
+    minimum_tmdb_rating:    Optional[float] = None
+    minimum_tmdb_votes:     Optional[int] = None
+    minimum_tmdb_popularity: Optional[float] = None
 
     # NFO options
-    write_nfo:                    bool
-    write_nfo_only_if_not_exists: bool
-    update_tv_series_nfo:       bool
+    write_nfo:                    Optional[bool] = False
+    write_nfo_only_if_not_exists: Optional[bool] = False
+    update_tv_series_nfo:       Optional[bool] = False
     
     # Subtitles
-    opensubtitles_download: bool
-    opensubtitles_app_name:  Optional[str]
-    opensubtitles_api_key:   Optional[str]
-    opensubtitles_username:  Optional[str]
-    opensubtitles_password:  Optional[str]
+    opensubtitles_download:  Optional[bool] = False
+    opensubtitles_app_name:  Optional[str] = None
+    opensubtitles_api_key:   Optional[str] = None
+    opensubtitles_username:  Optional[str] = None
+    opensubtitles_password:  Optional[str] = None
     
     # Emby
-    emby_api_url: Optional[str]
-    emby_api_key:  Optional[str]
-    emby_movie_library_id:   Optional[int]
+    emby_api_url: Optional[str] = None
+    emby_api_key:  Optional[str] = None
+    emby_movie_library_id:   Optional[int] = None
 
 
     # ─── coerce blank-last_run into None ──────────────────────────────────────

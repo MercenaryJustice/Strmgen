@@ -47,7 +47,7 @@ class MediaPaths:
         Build the full file path under the base folder and ensure directories exist.
         """
         base = cls._base_folder(media_type, group, title, year)
-        base.mkdir(parents=True, exist_ok=True)
+        # base.mkdir(parents=True, exist_ok=True)
         return base / filename
 
     # ── Movie helpers ────────────────────────────────────────────────────────────

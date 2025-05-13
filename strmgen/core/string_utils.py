@@ -8,12 +8,15 @@ from strmgen.core.config import get_settings
 # ─── Filename Utilities ───────────────────────────────────────────────────────
 
 def clean_name(name: str) -> str:
-    """Sanitize and strip optional tokens from a name."""
+    """Sanitize and strip optional tokens from a name, then trim surrounding spaces."""
     settings = get_settings()
     if settings.remove_strings:
         for token in settings.remove_strings:
             name = name.replace(token, "")
-    return re.sub(r'[<>:"/\\|?*]', "", name)
+    # remove illegal filesystem characters
+    name = re.sub(r'[<>:"/\\|?*]', "", name)
+    # strip spaces before and after
+    return name.strip()
 
 
 def remove_prefixes(title: str) -> str:

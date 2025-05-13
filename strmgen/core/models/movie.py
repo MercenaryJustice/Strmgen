@@ -1,6 +1,7 @@
 # strmgen/core/models/movie.py
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
+from datetime import datetime
 
 
 @dataclass
@@ -37,9 +38,9 @@ class Movie:
 
     @property
     def year(self) -> Optional[int]:
-        if not self.release_date or len(self.release_date) < 4:
-            return None
         try:
-            return int(self.release_date[:4])
-        except ValueError:
+            # datetime.fromisoformat handles “YYYY-MM-DD”
+            dt = datetime.fromisoformat(self.release_date)
+            return dt.year
+        except (ValueError, TypeError):
             return None

@@ -5,6 +5,7 @@ import random
 from difflib import SequenceMatcher
 from typing import Optional, Dict, List, Any, TypeVar
 from pathlib import Path
+from datetime import datetime
 
 import aiofiles
 import httpx
@@ -95,12 +96,30 @@ async def fetch_movie_details(
             results = search_data.get("results", []) if search_data else []
             if not results:
                 return None
+
             candidates: List[Movie] = []
             for r in results:
                 mid = r.get("id")
                 if not mid:
                     continue
+
+                # fetch full details
                 det = await _get(f"/movie/{mid}", append_to)
+                rel_date = det.get("release_date", "")
+                if rel_date:
+                    try:
+                        dt = datetime.fromisoformat(rel_date)       # e.g. "2022-05-13"
+                        rel_year = dt.year
+                    except ValueError:
+                        rel_year = None
+                else:
+                    rel_year = None
+
+                # skip if we asked for a year and it doesn't match
+                if year is not None and rel_year is not None and rel_year != year:
+                    logger.debug("[TMDB] Skipping %s (%s) — year mismatch", det.get("title"), rel_year)
+                    continue
+
                 candidates.append(Movie(
                     id=det.get("id", 0),
                     title=det.get("title", ""),
@@ -108,7 +127,7 @@ async def fetch_movie_details(
                     overview=det.get("overview", ""),
                     poster_path=det.get("poster_path"),
                     backdrop_path=det.get("backdrop_path"),
-                    release_date=det.get("release_date", ""),
+                    release_date=rel_date,
                     adult=det.get("adult", False),
                     original_language=det.get("original_language", ""),
                     genre_ids=det.get("genres", []),
@@ -132,20 +151,24 @@ async def fetch_movie_details(
                     watch_providers=det.get("watch/providers", {}),
                     raw=det,
                 ))
+
             if not candidates:
                 return None
+
+            # scoring / fallback
             target = clean_name(title or "")
             def score(m: Movie) -> float:
                 sim = SequenceMatcher(None, clean_name(m.title), target).ratio()
-                year_score = 0.5
-                if m.year and year:
-                    diff = abs(m.year - year)
-                    year_score = max(0.0, 1.0 - diff * 0.1)
+                year_score = 1.0  # since we’ve already filtered mismatches
                 return 0.7 * sim + 0.3 * year_score
+
             best: Movie = await asyncio.to_thread(max, candidates, key=score)
             detail = best.raw
+
         if not detail:
             return None
+
+        # final construction
         return Movie(
             id=detail.get("id", 0),
             title=detail.get("title", ""),
@@ -180,6 +203,8 @@ async def fetch_movie_details(
     except Exception as e:
         logger.error("[TMDB] movie details failed: %s", e)
         return None
+    
+
 
 async def fetch_tv_details(
     group: str,

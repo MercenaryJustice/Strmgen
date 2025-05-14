@@ -25,7 +25,6 @@ movie_cache = {}
 async def process_movies(
     streams: List[DispatcharrStream],
     group: str,
-    headers: Dict[str, str],
     reprocess: bool = False
 ) -> None:
     """
@@ -126,8 +125,7 @@ async def reprocess_movie(skipped: SkippedStream) -> bool:
             logger.error(f"{LOG_TAG} Invalid dispatcharr_id for: {skipped.get('name')}")
             return False
 
-        headers = await get_auth_headers()
-        stream = await get_dispatcharr_stream_by_id(did, headers, timeout=10)
+        stream = await get_dispatcharr_stream_by_id(did)
         if not is_running() or not stream:
             logger.error(f"{LOG_TAG} No stream for reprocess: {skipped.get('name')}")
             return False
@@ -136,7 +134,7 @@ async def reprocess_movie(skipped: SkippedStream) -> bool:
         return False
 
     try:
-        await process_movies([stream], skipped.get("group", ""), headers, reprocess=True)
+        await process_movies([stream], skipped.get("group", ""), reprocess=True)
         logger.info(f"{LOG_TAG} ✅ Reprocessed movie: {skipped.get('name')}")
         return True
     except Exception as e:

@@ -3,7 +3,7 @@
 import asyncio
 import httpx
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import List, Optional, Any
 from urllib.parse import quote_plus
 from fastapi import HTTPException
 
@@ -20,7 +20,6 @@ tag = "[STRM]"
 
 async def fetch_streams_by_group_name(
     group_name: str,
-    headers: Dict[str, str],
     stream_type: MediaType,
     updated_only: bool = False,
 ) -> List[DispatcharrStream]:
@@ -97,9 +96,7 @@ async def is_stream_alive(
 
 
 async def get_dispatcharr_stream_by_id(
-    stream_id: int,
-    headers: Dict[str, str],
-    timeout: float = API_TIMEOUT
+    stream_id: int
 ) -> Optional[DispatcharrStream]:
     """
     Async fetch of a single DispatcharrStream by ID, with token refresh.
@@ -190,13 +187,10 @@ async def fetch_groups() -> List[str]:
 async def fetch_streams(
     group: str,
     stream_type: str,
-    headers: Optional[Dict[str, str]] = None,
     timeout: float = API_TIMEOUT,
 ) -> List[DispatcharrStream]:
     out: List[DispatcharrStream] = []
     settings = get_settings()
-    hdrs = headers or await get_auth_headers()
-    hdrs["accept"] = "application/json"
     url = f"{settings.api_base.rstrip('/')}\
 / api/channels/streams/"
     page = 1

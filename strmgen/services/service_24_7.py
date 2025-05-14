@@ -14,8 +14,7 @@ _skipped_247: set[str] = set()
 
 async def process_24_7(
     streams: List[DispatcharrStream],
-    group: str,
-    headers: Dict[str, str]
+    group: str
 ) -> None:
     """
     Async processing for 24/7 streams:

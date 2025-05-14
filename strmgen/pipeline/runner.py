@@ -3,7 +3,6 @@
 import asyncio
 import logging
 import fnmatch
-import json
 from datetime import datetime, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -111,11 +110,11 @@ async def run_pipeline():
             for grp in groups:
                 if not is_running():
                     return
-                streams = await fetch_streams_by_group_name(grp, headers, media_type)
+                streams = await fetch_streams_by_group_name(grp, media_type)
                 batches = list(chunked(streams, settings.batch_size))
                 for idx, batch in enumerate(batches, start=1):
                     logger.info("Starting batch %d/%d for group %s", idx, len(batches), grp)
-                    await _process_batch(batch, grp, proc_fn, media_type, headers)
+                    await _process_batch(batch, grp, proc_fn)
                     if not is_running():
                         logger.info("Pipeline stopped during batch %d", idx)
                         return
@@ -130,7 +129,7 @@ async def run_pipeline():
             if proc_fn == process_movies:
                 movie_cache.clear()
 
-        async def _process_batch(batch, grp, proc_fn, media_type, headers):
+        async def _process_batch(batch, grp, proc_fn):
             sem = asyncio.Semaphore(settings.concurrent_requests)
             async def worker(i, total, stream):
                 async with sem:
@@ -153,10 +152,10 @@ async def run_pipeline():
             for grp in matched_tv:
                 if not is_running():
                     break
-                streams = await fetch_streams_by_group_name(grp, headers, MediaType.TV)
+                streams = await fetch_streams_by_group_name(grp, MediaType.TV)
                 logger.info("TV group %r has %d streams; delegating to process_tv()", grp, len(streams))
                 try:
-                    await process_tv(streams, grp, headers)
+                    await process_tv(streams, grp)
                 except Exception:
                     logger.exception("Fatal error in TV group %r; continuing", grp)
 

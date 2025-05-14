@@ -1,10 +1,9 @@
 from typing import List
 
-from fastapi import APIRouter, HTTPException, Query, Body, Request
+from fastapi import APIRouter, HTTPException, Query, Body
 
 from strmgen.services.streams import (
-    fetch_groups,
-    fetch_streams_by_group_name
+    fetch_groups
 )
 from strmgen.core.logger import setup_logger
 from strmgen.core.db import (
@@ -21,14 +20,6 @@ router = APIRouter(tags=["Streams"])
 async def api_groups():
     return await fetch_groups()
 
-@router.get("/streams-by-group/{group}")
-async def api_streams(group: str, request: Request):
-    try:
-        headers = dict(request.headers)
-        return await fetch_streams_by_group_name(group, headers)
-    except Exception as e:
-        logger.error("Failed fetching streams: %s", e)
-        raise HTTPException(500, "Error fetching streams")
 
 
 @router.get("/skipped-streams", response_model=List[SkippedStream], name="skipped.get_skipped_streams")

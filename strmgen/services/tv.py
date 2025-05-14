@@ -52,7 +52,6 @@ async def download_subtitles_if_enabled(
 async def process_tv(
     streams: List[DispatcharrStream],
     group: str,
-    headers: Dict[str, str],
     reprocess: bool = False
 ) -> None:
     settings = get_settings()
@@ -196,14 +195,13 @@ async def process_tv(
 
 
 async def reprocess_tv(skipped: SkippedStream) -> bool:
-    headers = await get_auth_headers()
     try:
-        streams = await fetch_streams(skipped["group"], skipped["stream_type"], headers=headers)
+        streams = await fetch_streams(skipped["group"], skipped["stream_type"])
         if not is_running() or not streams:
             logger.error("Cannot reprocess TV %s: no streams", skipped["name"])
             return False
 
-        await process_tv(streams, skipped["group"], headers, True)
+        await process_tv(streams, skipped["group"], True)
         logger.info("✅ Reprocessed TV show %s", skipped["name"])
         return True
     except Exception as e:

@@ -101,6 +101,26 @@ async def lifespan(app: FastAPI):
           ON skipped_streams(dispatcharr_id);
         """)
 
+        # 3.a) Grant all the necessary rights to your configured DB user
+        db_user = settings.db_user
+        db_name = settings.db_name
+
+        # allow connecting
+        await conn.execute(f"GRANT CONNECT ON DATABASE {db_name} TO {db_user};")
+        # allow usage of the public schema
+        await conn.execute(f"GRANT USAGE ON SCHEMA public TO {db_user};")
+        # full control over existing tables
+        await conn.execute(f"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {db_user};")
+        # full control over sequences (if you ever add serial/identity columns)
+        await conn.execute(f"GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO {db_user};")
+        # optional—if you want to auto-grant privileges on future tables/sequences:
+        await conn.execute(f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO {db_user};")
+        await conn.execute(f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO {db_user};")
+
+
+
+
+
     # 4) Start scheduler, auth, and TMDb genre map
     schedule_on_startup()
     await get_access_token()

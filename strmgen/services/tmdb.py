@@ -6,13 +6,14 @@ from difflib import SequenceMatcher
 from typing import Optional, Dict, List, Any, TypeVar
 from pathlib import Path
 from datetime import datetime
+import logging
 
 import aiofiles
 import httpx
 from httpx import PoolTimeout, HTTPError
 
 from strmgen.core.config import get_settings
-from strmgen.core.utils import setup_logger, safe_mkdir
+from strmgen.core.utils import safe_mkdir
 from strmgen.core.string_utils import clean_name
 from strmgen.core.clients import tmdb_client, tmdb_image_client, tmdb_limiter
 from strmgen.core.models.dispatcharr import DispatcharrStream
@@ -20,7 +21,7 @@ from strmgen.core.models.tv import TVShow, EpisodeMeta, SeasonMeta
 from strmgen.core.models.movie import Movie
 
 
-logger = setup_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 async def _get(endpoint: str, params: Dict[str, Any]) -> Any:

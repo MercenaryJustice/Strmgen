@@ -3,14 +3,15 @@
 
 import asyncpg
 import asyncio
+import logging
+
 from typing import TypedDict, Optional, Any, List
 from dataclasses import is_dataclass, asdict
 
 from strmgen.core.config import get_settings
-from strmgen.core.utils import setup_logger
 from strmgen.core.models.dispatcharr import DispatcharrStream
 
-logger = setup_logger(__name__)
+logger = logging.getLogger(__name__)
 
 _pool: asyncpg.Pool | None = None
 _pool_lock = asyncio.Lock()

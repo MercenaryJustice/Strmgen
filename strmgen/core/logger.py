@@ -37,29 +37,21 @@ class AsyncQueueHandler(Handler):
             pass
 
 # ─── Public API ───────────────────────────────────────────────────────────────
-def setup_logger(name: str, level: int = logging.INFO) -> logging.Logger:
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
+def setup_logging(level=logging.INFO, enable_console=True):
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
 
-    if logger.hasHandlers():
-        return logger
+    if not any(isinstance(h, AsyncQueueHandler) for h in root_logger.handlers):
+        q_handler = AsyncQueueHandler()
+        q_handler.setFormatter(formatter)
+        root_logger.addHandler(q_handler)
 
-    # Prevent duplicate logging by disabling propagation
-    logger.propagate = False
+    if enable_console and not any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers):
+        console = logging.StreamHandler(sys.stdout)
+        console.setFormatter(formatter)
+        root_logger.addHandler(console)
 
-    # Console → stdout
-    ch = logging.StreamHandler(sys.stdout)
-    ch.setLevel(level)
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
 
-    # In‑memory queue → for SSE
-    qh = AsyncQueueHandler()
-    qh.setLevel(level)
-    qh.setFormatter(formatter)
-    logger.addHandler(qh)
-
-    return logger
 
 def notify_progress(media_type, group, current, total):
     """

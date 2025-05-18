@@ -1,4 +1,5 @@
 # strmgen/main.py
+import logging
 
 from pathlib import Path
 from typing import Optional
@@ -15,8 +16,7 @@ from strmgen.core.auth import get_access_token
 from strmgen.pipeline.runner import schedule_on_startup
 from strmgen.core.config import register_startup, get_settings
 from strmgen.core.db import close_pg_pool, init_pg_pool
-from strmgen.core.logger import setup_logger
-# from strmgen.services.tmdb import init_tv_genre_map
+from strmgen.core.logger import setup_logging
 from strmgen.core.clients import async_client, tmdb_client, tmdb_image_client, emby_client
 
 app = FastAPI(title="STRMGen API & UI", debug=True)
@@ -26,7 +26,8 @@ app.include_router(ui_router)
 register_startup(app)
 
 # Prime the app logger
-logger = setup_logger(__name__)
+setup_logging()
+logger = logging.getLogger(__name__)
 logger.info("Logger initialized, starting application…")
 
 # API v1 routers
@@ -145,7 +146,7 @@ async def lifespan(app: FastAPI):
         await tmdb_image_client.aclose()
         await async_client.aclose()
         await emby_client.aclose()
-
+        await close_pg_pool()
 
 # Attach the lifespan to the app
 app.router.lifespan_context = lifespan

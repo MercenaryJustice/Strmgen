@@ -2,6 +2,8 @@
 
 import asyncio
 import httpx
+import logging
+
 from pathlib import Path
 from typing import List, Optional, Any
 from urllib.parse import quote_plus
@@ -9,11 +11,10 @@ from fastapi import HTTPException
 
 from strmgen.core.config import get_settings
 from strmgen.core.auth import get_auth_headers
-from strmgen.core.utils import setup_logger, safe_mkdir
 from strmgen.core.models.dispatcharr import DispatcharrStream, MediaType
 from strmgen.core.clients import async_client
 
-logger = setup_logger(__name__)
+logger = logging.getLogger(__name__)
 API_TIMEOUT = 10.0
 
 tag = "[STRM]"

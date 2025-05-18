@@ -2,6 +2,7 @@
 
 import asyncio
 import shutil
+import logging
 
 from collections import defaultdict
 from pathlib import Path
@@ -10,17 +11,15 @@ from more_itertools import chunked
 
 from strmgen.core.db import mark_skipped, is_skipped, SkippedStream
 from strmgen.core.config import get_settings
-from strmgen.core.logger import setup_logger
 from strmgen.services.tmdb import TVShow, fetch_tv_details, get_season_meta, download_if_missing
 from strmgen.services.subtitles import download_episode_subtitles
 from strmgen.core.utils import filter_by_threshold, write_tvshow_nfo, write_episode_nfo, safe_remove
 from strmgen.services.streams import fetch_streams
-from strmgen.core.auth import get_auth_headers
 from strmgen.core.control import is_running
 from strmgen.core.models.dispatcharr import DispatcharrStream
 from strmgen.core.models.tv import SeasonMeta
 
-logger = setup_logger(__name__)
+logger = logging.getLogger(__name__)
 TAG = "[TV] 🖼️"
 _skipped: set[str] = set()
 

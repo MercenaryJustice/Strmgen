@@ -2,18 +2,20 @@
 
 import shutil
 import asyncio
+import logging
+
 from typing import Optional, Any
 from pathlib import Path
 
 from opensubtitlescom import OpenSubtitles
 
 from strmgen.core.config import get_settings
-from strmgen.core.utils import setup_logger, safe_mkdir
+from strmgen.core.utils import safe_mkdir
 from strmgen.core.string_utils import clean_name
 from strmgen.services.tmdb import Movie
 from strmgen.core.models.dispatcharr import DispatcharrStream
 
-logger = setup_logger(__name__)
+logger = logging.getLogger(__name__)
 _settings = get_settings()
 _download_limit_reached = False
 sub_client: Optional[OpenSubtitles] = None

@@ -1,18 +1,17 @@
+import logging
+
 from typing import List
-
 from fastapi import APIRouter, HTTPException, Query, Body
-
 from strmgen.services.streams import (
     fetch_groups
 )
-from strmgen.core.logger import setup_logger
 from strmgen.core.db import (
     list_skipped,
     update_skipped_reprocess,
     SkippedStream
 )
 
-logger = setup_logger(__name__)
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Streams"])
 

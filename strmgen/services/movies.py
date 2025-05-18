@@ -1,6 +1,8 @@
 # strmgen/services/movies.py
 
 import asyncio
+import logging
+
 from typing import List
 
 from strmgen.core.config import get_settings
@@ -8,14 +10,13 @@ from .subtitles import download_movie_subtitles
 from .streams import write_strm_file, get_dispatcharr_stream_by_id
 from .tmdb import fetch_movie_details, download_if_missing
 from strmgen.core.utils import write_if, write_movie_nfo, filter_by_threshold, safe_remove
-from strmgen.core.logger import setup_logger
 from strmgen.core.db import mark_skipped, is_skipped, SkippedStream
 from strmgen.core.control import is_running
 from strmgen.core.models.dispatcharr import DispatcharrStream
 from strmgen.services.emby import search_emby_library
 from strmgen.core.models.enums import MediaType
 
-logger = setup_logger(__name__)
+logger = logging.getLogger(__name__)
 settings = get_settings()
 TITLE_YEAR_RE = settings.MOVIE_TITLE_YEAR_RE
 LOG_TAG = "[MOVIE] 🖼️"

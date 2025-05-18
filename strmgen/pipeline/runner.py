@@ -3,6 +3,8 @@
 import asyncio
 import logging
 import fnmatch
+import logging
+
 from datetime import datetime, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -16,12 +18,12 @@ from strmgen.services.streams import fetch_streams_by_group_name
 from strmgen.services.service_24_7 import process_24_7
 from strmgen.services.movies import process_movies, movie_cache
 from strmgen.services.tv import process_tv
-from strmgen.core.logger import setup_logger, notify_progress
+from strmgen.core.logger import notify_progress
 from strmgen.core.models.enums import MediaType
 from strmgen.core.clients import async_client
 from strmgen.core.control import set_processor_task, is_running
 
-logger = setup_logger(__name__)
+logger = logging.getLogger(__name__)
 
 # ─── Scheduler & run‐history ────────────────────────────────────────────────
 scheduler = AsyncIOScheduler()

@@ -5,17 +5,18 @@ Utility functions: directory handling, Jinja2-backed NFO templating, TMDb filter
 import errno
 import shutil
 import os
+import logging
+
 from pathlib import Path
 from typing import List, Any, Optional, Dict, Callable, TypeVar, Union
 from jinja2 import Environment, select_autoescape
 
-from strmgen.core.logger import setup_logger
 from strmgen.core.config import get_settings
 from strmgen.core.models.dispatcharr import DispatcharrStream
 from strmgen.core.models.tv import TVShow, EpisodeMeta, SeasonMeta
 from strmgen.core.models.movie import Movie
 
-logger = setup_logger(__name__)
+logger = logging.getLogger(__name__)
 settings = get_settings()
 
 # Initialize Jinja2 environment for XML escaping

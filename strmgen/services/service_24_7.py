@@ -1,14 +1,15 @@
 # strmgen/services/service_24_7.py
 
 import re
-from typing import Dict, List
+import logging
+
+from typing import List
 
 from .streams import write_strm_file
 from strmgen.core.string_utils import clean_name
-from strmgen.core.logger import setup_logger
 from strmgen.core.models.dispatcharr import DispatcharrStream
 
-logger = setup_logger(__name__)
+logger = logging.getLogger(__name__)
 RE_24_7_CLEAN = re.compile(r"(?i)\b24[/-]7\b[\s\-:]*")
 _skipped_247: set[str] = set()
 

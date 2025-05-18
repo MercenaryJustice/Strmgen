@@ -2,12 +2,13 @@
 
 import asyncio
 import httpx
+import logging
+
 from typing import Dict, Callable, Awaitable, AsyncIterator
 
 from strmgen.core.config import get_settings
-from strmgen.core.logger import setup_logger
 
-logger = setup_logger(__name__)
+logger = logging.getLogger(__name__)
 
 _token_lock = asyncio.Lock()
 _cached_token: str = ""

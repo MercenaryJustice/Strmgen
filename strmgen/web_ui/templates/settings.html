@@ -1,29 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h2>Settings</h2>
-<form class="settings-form" id="settingsForm"><style>
-  .settings-group.collapsed .collapsible-content {
-    display: none;
-  }
-  .collapsible-header {
-    cursor: pointer;
-    background-color: var(--bg-tertiary); /* use contrast background */
-    padding: 10px 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-    border: 1px solid var(--border-color); /* use defined border */
-    border-radius: 6px 6px 0 0;
-    transition: background-color 0.3s;
-  }
-  .settings-group {
-    border: 1px solid var(--border-color);
-    margin-bottom: 10px;
-    padding: 0;
-  }
-  .collapsible-content {
-    padding: 10px;
-  }
-</style>
+<form id="settingsForm" data-api-base="{{ request.url_for('settings.get_settings') }}">
 <!-- Core Connection -->
 <div class="settings-group collapsed"><div class="collapsible-header">Core Connection</div><div class="collapsible-content">
 
@@ -335,28 +313,7 @@
 </div>
 </div></div>
 <button class="save-button" type="submit">Save Settings</button>
-<script>
-  document.addEventListener("DOMContentLoaded", function () {
-    const headers = document.querySelectorAll(".collapsible-header");
-    headers.forEach(header => {
-      header.addEventListener("click", () => {
-        const group = header.closest(".settings-group");
-        group.classList.toggle("collapsed");
-      });
-    });
-  });
-</script>
-<script>
-  document.addEventListener("DOMContentLoaded", function () {
-    const headers = document.querySelectorAll(".collapsible-header");
-    headers.forEach(header => {
-      header.addEventListener("click", () => {
-        const group = header.closest(".settings-group");
-        group.classList.toggle("collapsed");
-      });
-    });
-  });
-</script></form>
+</form>
 
-{% include "settings_scripts.html" %}
+<script src="{{ url_for('static', path='js/settings.js') }}" defer></script>
 {% endblock %}

@@ -2,6 +2,7 @@
 """Database-access layer: connection pool, skipped_streams table, etc."""
 
 import asyncpg
+import asyncio
 from typing import TypedDict, Optional, Any, List
 from dataclasses import is_dataclass, asdict
 
@@ -11,15 +12,39 @@ from strmgen.core.models.dispatcharr import DispatcharrStream
 
 logger = setup_logger(__name__)
 
-_pool: asyncpg.Pool
+_pool: asyncpg.Pool | None = None
+_pool_lock = asyncio.Lock()
 
-# ——————————————————————————————————————————————————————————————————————
+# ─────────────────────────────────────────────────────────────────────────────
+# Connection Pool Access
+# ─────────────────────────────────────────────────────────────────────────────
+async def get_pg_pool() -> asyncpg.Pool:
+    global _pool
+    if _pool is None:
+        async with _pool_lock:
+            if _pool is None:
+                settings = get_settings()
+                _pool = await asyncpg.create_pool(dsn=settings.postgres_dsn)
+    return _pool
+
+async def init_pg_pool() -> None:
+    """Explicit init (optional). Usually prefer get_pg_pool()."""
+    await get_pg_pool()
+
+async def close_pg_pool() -> None:
+    """Close the asyncpg connection pool."""
+    global _pool
+    if _pool is not None:
+        await _pool.close()
+        _pool = None
+
+# ─────────────────────────────────────────────────────────────────────────────
 # State-management API
-# ——————————————————————————————————————————————————————————————————————
-
+# ─────────────────────────────────────────────────────────────────────────────
 async def is_skipped(stream_type: str, dispatcharr_id: int) -> bool:
     """Check if a stream is marked skipped in the DB."""
-    row = await _pool.fetchrow(
+    pool = await get_pg_pool()
+    row = await pool.fetchrow(
         """
         SELECT 1
           FROM skipped_streams
@@ -32,10 +57,7 @@ async def is_skipped(stream_type: str, dispatcharr_id: int) -> bool:
     return row is not None
 
 async def mark_skipped(stream_type: str, group: str, mshow: Any, stream: DispatcharrStream) -> bool:
-    """
-    Upsert a skipped_streams record for a given stream.
-    """
-    # Serialize the metadata object
+    """Upsert a skipped_streams record for a given stream."""
     if is_dataclass(mshow):
         data_dict = asdict(mshow) if not isinstance(mshow, type) else {}
     elif hasattr(mshow, "raw"):
@@ -44,7 +66,6 @@ async def mark_skipped(stream_type: str, group: str, mshow: Any, stream: Dispatc
         data_dict = getattr(mshow, "__dict__", {})
 
     dispatcharr_id = stream.id
-    # Determine tmdb_id
     tmdb_id = None
     for key in ("id", "tmdb_id", "movie_id", "show_id"):
         if key in data_dict and data_dict[key] is not None:
@@ -53,7 +74,6 @@ async def mark_skipped(stream_type: str, group: str, mshow: Any, stream: Dispatc
     if tmdb_id is None:
         tmdb_id = getattr(mshow, "id", None) or getattr(mshow, "tmdb_id", None)
 
-    # Determine human-readable name
     name = None
     for key in ("name", "title", "original_name"):
         if key in data_dict and data_dict[key]:
@@ -66,8 +86,8 @@ async def mark_skipped(stream_type: str, group: str, mshow: Any, stream: Dispatc
         logger.warning("Skipped insert: missing tmdb_id or name for %r", mshow)
         return False
 
-    # Upsert record
-    await _pool.execute(
+    pool = await get_pg_pool()
+    await pool.execute(
         """
         INSERT INTO skipped_streams
         (tmdb_id, dispatcharr_id, stream_type, group_name, name, reprocess)
@@ -110,19 +130,22 @@ async def list_skipped(
         "SELECT tmdb_id, dispatcharr_id, stream_type, group_name AS group, "
         "name, reprocess FROM skipped_streams " + where
     )
-    rows = await _pool.fetch(sql, *params)
+    pool = await get_pg_pool()
+    rows = await pool.fetch(sql, *params)
     return [dict(r) for r in rows]
 
 async def set_reprocess(tmdb_id: int, allow: bool) -> None:
     """Set reprocess flag for a skipped stream."""
-    await _pool.execute(
+    pool = await get_pg_pool()
+    await pool.execute(
         "UPDATE skipped_streams SET reprocess = $1 WHERE tmdb_id = $2",
         allow, tmdb_id
     )
 
 async def update_skipped_reprocess(tmdb_id: int, stream_type: str, reprocess: bool) -> None:
     """Update reprocess for a specific tmdb_id and stream_type."""
-    await _pool.execute(
+    pool = await get_pg_pool()
+    await pool.execute(
         """
         UPDATE skipped_streams
            SET reprocess = $1
@@ -131,13 +154,3 @@ async def update_skipped_reprocess(tmdb_id: int, stream_type: str, reprocess: bo
         """,
         reprocess, tmdb_id, stream_type
     )
-
-async def init_pg_pool() -> None:
-    """Initialize the asyncpg pool using in-memory settings."""
-    settings = get_settings()
-    global _pool
-    _pool = await asyncpg.create_pool(dsn=settings.postgres_dsn)
-
-async def close_pg_pool() -> None:
-    """Close the asyncpg connection pool."""
-    await _pool.close()

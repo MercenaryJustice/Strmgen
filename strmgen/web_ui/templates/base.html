@@ -24,16 +24,16 @@
     </aside>
 
     <div class="main-content">
-      <!-- <header class="top-bar">
-        <span class="page-title">{{ title if title else "STRMGen" }}</span>
-        <button id="theme-toggle" class="theme-toggle" aria-label="Toggle dark mode">🌙</button>
-      </header> -->
       <section class="content-section active">
         {% block content %}{% endblock %}
       </section>
     </div>
   </div>
-
+<button id="theme-toggle" title="Toggle theme"
+  style="position: fixed; bottom: 16px; right: 16px; z-index: 1000; background: none; border: none; font-size: 24px; cursor: pointer;">
+  ☀️
+</button>
+  <script>window.API_BASE = "/api/settings";</script>
   <script>
   (function() {
     const body = document.body;

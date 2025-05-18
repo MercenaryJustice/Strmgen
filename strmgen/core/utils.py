@@ -98,47 +98,67 @@ MOVIE_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 </movie>"""
 
 # ─── Templating Functions ───────────────────────────────────────────────────
-def write_tvshow_nfo(stream: DispatcharrStream, show: TVShow) -> None:
+def write_tvshow_nfo(stream: DispatcharrStream, show: TVShow) -> bool:
     path = stream.nfo_path
     try:
         xml = env.from_string(TVSHOW_TEMPLATE).render(stream=stream, show=show)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(xml, encoding="utf-8")
-        logger.info("[NFO] ✅ TV-Show NFO: %s", path)
-        logger.debug("[NFO] TV-Show NFO content: %s", xml)
+
+        try:
+            path.write_text(xml, encoding="utf-8")
+            logger.info("[NFO] ✅ TV-Show NFO: %s", path)
+            logger.debug("[NFO] TV-Show NFO content: %s", xml)
+            return True
+        except PermissionError as pe:
+            logger.error("[NFO] ❌ Permission denied writing TV-Show NFO: %s - %s", path, pe)
+            return False
+
     except Exception:
         logger.exception("[NFO] ❌ Failed TV-Show NFO: %s", show.name)
-        raise
+        return False
 
 
-def write_episode_nfo(stream: DispatcharrStream, episode: EpisodeMeta) -> None:
+def write_episode_nfo(stream: DispatcharrStream, episode: EpisodeMeta) -> bool:
     path = stream.nfo_path
     try:
         xml = env.from_string(EPISODE_TEMPLATE).render(stream=stream, episode=episode)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(xml, encoding="utf-8")
-        logger.info("[NFO] ✅ Episode NFO: %s", path)
-        logger.debug("[NFO] Episode NFO content: %s", xml)
+
+        try:
+            path.write_text(xml, encoding="utf-8")
+            logger.info("[NFO] ✅ Episode NFO: %s", path)
+            logger.debug("[NFO] Episode NFO content: %s", xml)
+            return True
+        except PermissionError as pe:
+            logger.error("[NFO] ❌ Permission denied writing Episode NFO: %s - %s", path, pe)
+            return False
+
     except Exception:
-        # Include show/episode identifiers for easier debugging
         logger.exception(
             "[NFO] ❌ Failed Episode NFO: %s S%02dE%02d",
             stream.channel_group_name, stream.season, stream.episode
         )
-        raise
+        return False
 
 
-def write_movie_nfo(stream: DispatcharrStream, movie: Movie) -> None:
+def write_movie_nfo(stream: DispatcharrStream, movie: Movie) -> bool:
     path = stream.nfo_path
     try:
         xml = env.from_string(MOVIE_TEMPLATE).render(stream=stream, movie=movie)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(xml, encoding="utf-8")
-        logger.info("[NFO] ✅ Movie NFO: %s", path)
-        logger.debug("[NFO] Movie NFO content: %s", xml)
+
+        try:
+            path.write_text(xml, encoding="utf-8")
+            logger.info("[NFO] ✅ Movie NFO: %s", path)
+            logger.debug("[NFO] Movie NFO content: %s", xml)
+            return True
+        except PermissionError as pe:
+            logger.error("[NFO] ❌ Permission denied writing NFO: %s - %s", path, pe)
+            return False
+
     except Exception:
-        logger.exception("[NFO] ❌ Failed Movie NFO: %s", movie.title)
-        raise
+        logger.exception("[NFO] ❌ Failed Movie NFO rendering for: %s", movie.title)
+        return False
 
 # ─── TMDb Missing Fields Validators ───────────────────────────────────────────
 def tmdb_missing_nfo_movie_fields(meta: Dict[str, Any]) -> List[str]:

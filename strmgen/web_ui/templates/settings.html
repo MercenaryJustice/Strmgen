@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h2>Settings</h2>
-<form id="settingsForm" data-api-base="{{ request.url_for('settings.get_settings') }}">
+<form id="settingsForm" data-api-base="/api/v1/settings">
 <!-- Core Connection -->
 <div class="settings-group collapsed"><div class="collapsible-header">Core Connection</div><div class="collapsible-content">
 

@@ -18,7 +18,7 @@ from strmgen.services.movies import process_movies, movie_cache
 from strmgen.services.tv import process_tv
 from strmgen.core.logger import setup_logger, notify_progress
 from strmgen.core.models.enums import MediaType
-from strmgen.core.httpclient import async_client
+from strmgen.core.clients import async_client
 from strmgen.core.control import set_processor_task, is_running
 
 logger = setup_logger(__name__)

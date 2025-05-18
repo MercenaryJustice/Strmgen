@@ -1,7 +1,4 @@
-const API_BASE = document.getElementById('settingsForm')?.dataset.apiBase;
-const settingsForm = document.getElementById('settingsForm');
-const submitButton = settingsForm?.querySelector('button[type="submit"]');
-
+const API_BASE = "/api/v1/settings";
 const boolFields = [
   'skip_stream_check', 'only_updated_streams', 'update_stream_link',
   'clean_output_dir', 'process_movies_groups', 'process_tv_series_groups',
@@ -40,44 +37,65 @@ function showMessage(msg, success = true) {
   setTimeout(() => box.remove(), 4000);
 }
 
+async function fetchSettingsFromApi() {
+  const res = await fetch(API_BASE);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+function populateForm(cfg) {
+  [
+    'api_base', 'token_url', 'access', 'refresh', 'username', 'password',
+    'stream_base_url', 'output_root', 'movie_year_regex', 'tv_series_episode_regex',
+    'tmdb_api_key', 'tmdb_language', 'tmdb_image_size',
+    'opensubtitles_app_name', 'opensubtitles_api_key',
+    'opensubtitles_username', 'opensubtitles_password',
+    'emby_api_url', 'emby_api_key', 'emby_movie_library_id'
+  ].forEach(id => setVal(id, cfg[id] ?? ''));
+
+  numberFields.forEach(id => setVal(id, cfg[id]));
+
+  arrayFields.forEach(id => {
+    const val = (cfg[id.replace('_raw', '')] || []).join(',');
+    setVal(id, val);
+  });
+
+  boolFields.forEach(name => {
+    const cb = document.querySelector(`input[type="checkbox"][name="${name}"]`);
+    if (cb) cb.checked = !!cfg[name];
+  });
+}
+
 async function loadSettings() {
   try {
     if (!API_BASE) throw new Error('API base not found');
-    const res = await fetch(API_BASE);
-    if (!res.ok) throw new Error(await res.text());
-    const cfg = await res.json();
+    const cached = sessionStorage.getItem('settings');
+    const cfg = cached ? JSON.parse(cached) : await fetchSettingsFromApi();
 
-    // Plain values
-    [
-      'api_base', 'token_url', 'access', 'refresh', 'username', 'password',
-      'stream_base_url', 'output_root', 'movie_year_regex', 'tv_series_episode_regex',
-      'tmdb_api_key', 'tmdb_language', 'tmdb_image_size',
-      'opensubtitles_app_name', 'opensubtitles_api_key',
-      'opensubtitles_username', 'opensubtitles_password',
-      'emby_api_url', 'emby_api_key', 'emby_movie_library_id'
-    ].forEach(id => setVal(id, cfg[id] ?? ''));
-
-    numberFields.forEach(id => setVal(id, cfg[id]));
-
-    arrayFields.forEach(id => {
-      const val = (cfg[id.replace('_raw', '')] || []).join(',');
-      setVal(id, val);
-    });
-
-    boolFields.forEach(name => {
-      const cb = document.querySelector(`input[type="checkbox"][name="${name}"]`);
-      if (cb) cb.checked = !!cfg[name];
-    });
-
+    if (!cached) sessionStorage.setItem('settings', JSON.stringify(cfg));
+    populateForm(cfg);
   } catch (err) {
     console.error('Failed to load settings:', err);
     showMessage('Could not load settings', false);
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  loadSettings();
+function lazyLoadSettings() {
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback(loadSettings);
+  } else {
+    setTimeout(loadSettings, 0);
+  }
+}
 
+window.initSettingsPage = function () {
+  const form = document.getElementById('settingsForm');
+  const submitButton = form?.querySelector('button[type="submit"]');
+  if (!form) return;
+
+  lazyLoadSettings();
+
+  // Rebind collapsible logic
   document.querySelectorAll('.collapsible-header').forEach(header => {
     header.addEventListener('click', () => {
       const group = header.closest('.settings-group');
@@ -85,6 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Rebind show/hide password
   document.querySelectorAll('.toggle-password').forEach(btn => {
     btn.addEventListener('click', () => {
       const input = document.getElementById(btn.dataset.target);
@@ -96,19 +115,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  settingsForm?.addEventListener('submit', async e => {
+  // Rebind submit handler
+  form.addEventListener('submit', async e => {
     e.preventDefault();
-    if (!API_BASE) return;
-
     const payload = {};
 
-    // Load boolean checkboxes
     boolFields.forEach(name => {
-      const cb = settingsForm.querySelector(`input[type="checkbox"][name="${name}"]`);
+      const cb = form.querySelector(`input[type="checkbox"][name="${name}"]`);
       payload[name] = cb ? cb.checked : false;
     });
 
-    const data = new FormData(settingsForm);
+    const data = new FormData(form);
     for (let [key, value] of data.entries()) {
       if (boolFields.includes(key)) continue;
 
@@ -135,8 +152,9 @@ document.addEventListener('DOMContentLoaded', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      if (!res.ok) throw new Error(await res.text());
 
+      if (!res.ok) throw new Error(await res.text());
+      sessionStorage.setItem('settings', JSON.stringify(payload));
       showMessage('Settings saved successfully');
     } catch (err) {
       console.error('Save failed:', err);
@@ -144,5 +162,12 @@ document.addEventListener('DOMContentLoaded', () => {
     } finally {
       if (submitButton) submitButton.disabled = false;
     }
-  });
+  }, { once: true }); // prevent reattaching
+};
+
+// Auto-init only on first load (full page load case)
+document.addEventListener('DOMContentLoaded', () => {
+  if (document.getElementById('settingsForm')) {
+    window.initSettingsPage();
+  }
 });

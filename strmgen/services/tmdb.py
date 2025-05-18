@@ -14,7 +14,7 @@ from httpx import PoolTimeout, HTTPError
 from strmgen.core.config import get_settings
 from strmgen.core.utils import setup_logger, safe_mkdir
 from strmgen.core.string_utils import clean_name
-from strmgen.core.httpclient import tmdb_client, tmdb_image_client, tmdb_limiter
+from strmgen.core.clients import tmdb_client, tmdb_image_client, tmdb_limiter
 from strmgen.core.models.dispatcharr import DispatcharrStream
 from strmgen.core.models.tv import TVShow, EpisodeMeta, SeasonMeta
 from strmgen.core.models.movie import Movie

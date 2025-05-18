@@ -11,7 +11,7 @@ from strmgen.core.config import get_settings
 from strmgen.core.auth import get_auth_headers
 from strmgen.core.utils import setup_logger, safe_mkdir
 from strmgen.core.models.dispatcharr import DispatcharrStream, MediaType
-from strmgen.core.httpclient import async_client
+from strmgen.core.clients import async_client
 
 logger = setup_logger(__name__)
 API_TIMEOUT = 10.0
@@ -135,14 +135,15 @@ async def write_strm_file(
 
     if not settings.update_stream_link and await asyncio.to_thread(stream.strm_path.exists):
         return True
-    
-    if not stream.strm_path.parent.exists():
-        await asyncio.to_thread(safe_mkdir, stream.strm_path.parent)
+
+    # Ensure target directory exists
+    await asyncio.to_thread(stream.strm_path.parent.mkdir, parents=True, exist_ok=True)
 
     if await is_strm_up_to_date(stream):
         logger.info("%s ⚠️ .strm up-to-date: %s", tag, stream.strm_path)
         return True
-    
+
+    # Write the file
     await asyncio.to_thread(stream.strm_path.write_text, stream.proxy_url.strip(), "utf-8")
     logger.info("%s ✅ Wrote .strm: %s", tag, stream.strm_path)
     return True

@@ -1,7 +1,7 @@
 # strmgen/services/movies.py
 
 import asyncio
-from typing import Dict, List
+from typing import List
 
 from strmgen.core.config import get_settings
 from .subtitles import download_movie_subtitles
@@ -10,10 +10,10 @@ from .tmdb import fetch_movie_details, download_if_missing
 from strmgen.core.utils import write_if, write_movie_nfo, filter_by_threshold, safe_remove
 from strmgen.core.logger import setup_logger
 from strmgen.core.db import mark_skipped, is_skipped, SkippedStream
-from strmgen.core.auth import get_auth_headers
 from strmgen.core.control import is_running
 from strmgen.core.models.dispatcharr import DispatcharrStream
-from strmgen.services.emby import emby_movie_exists
+from strmgen.services.emby import search_emby_library
+from strmgen.core.models.enums import MediaType
 
 logger = setup_logger(__name__)
 settings = get_settings()
@@ -87,7 +87,7 @@ async def process_movies(
                 return
 
             # check Emby first
-            if settings.emby_api_key and await emby_movie_exists(movie.title, movie.year):
+            if settings.emby_api_key and await search_emby_library(movie.title, MediaType.MOVIE):
                 logger.info(f"{LOG_TAG} 🚫 Already in Emby: {movie.title} ({movie.year})")
                 if stream.base_path.exists():
                     await asyncio.to_thread(safe_remove, stream.base_path)

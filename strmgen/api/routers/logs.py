@@ -1,15 +1,13 @@
 # strmgen/api/routers/logs.py
 
 import asyncio
-import logging
 
 from fastapi import APIRouter
 from sse_starlette.sse import EventSourceResponse
-
-from strmgen.core.logger import log_queue
+from strmgen.core.logger import log_queue, setup_logger
 
 router = APIRouter(tags=["logs"])
-logger = logging.getLogger("LOGS")
+logger = setup_logger(__name__)
 
 # In‑memory list of queues for progress events
 progress_listeners: list[asyncio.Queue] = []

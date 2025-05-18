@@ -38,21 +38,22 @@ class AsyncQueueHandler(Handler):
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 def setup_logger(name: str, level: int = logging.INFO) -> logging.Logger:
-    """
-    Configure a logger that writes to both stdout and the in‑memory queue.
-    """
     logger = logging.getLogger(name)
     logger.setLevel(level)
-    # drop any existing handlers (e.g. file handlers)
-    logger.handlers.clear()
 
-    # 1) Console → stdout
+    if logger.hasHandlers():
+        return logger
+
+    # Prevent duplicate logging by disabling propagation
+    logger.propagate = False
+
+    # Console → stdout
     ch = logging.StreamHandler(sys.stdout)
     ch.setLevel(level)
     ch.setFormatter(formatter)
     logger.addHandler(ch)
 
-    # 2) In‑memory queue → for SSE
+    # In‑memory queue → for SSE
     qh = AsyncQueueHandler()
     qh.setLevel(level)
     qh.setFormatter(formatter)

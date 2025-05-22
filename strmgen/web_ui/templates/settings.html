@@ -94,31 +94,43 @@
 <label><input name="process_movies_groups" type="checkbox"> Process Movie Groups</input></label>
 <div class="setting-help">Enable processing of movie groups</div>
 </div>
+<!-- Movie Group Raw Input -->
+<input id="movies_groups_raw" name="movies_groups_raw" type="hidden" />
+
+<!-- ✅ Movie Group Dropdown -->
 <div class="setting-item">
-<label for="movies_groups_raw">Movie Groups (comma‑sep)</label>
-<input id="movies_groups_raw" name="movies_groups_raw" type="text" value=""/>
-<div class="setting-help">Comma‑separated patterns for movie groups</div>
+  <label for="movie_groups_select">Select Movie Groups</label>
+  <select id="movie_groups_select" multiple size="6" style="width: 100%;"></select>
 </div>
 <div class="setting-item">
 <input name="process_tv_series_groups" type="hidden" value="false"/>
 <label><input name="process_tv_series_groups" type="checkbox"> Process TV Series Groups</input></label>
 <div class="setting-help">Enable processing of TV series groups</div>
 </div>
+<!-- TV Group Raw Input -->
+<input id="tv_series_groups_raw" name="tv_series_groups_raw" type="hidden" />
+
+<!-- ✅ TV Group Dropdown -->
 <div class="setting-item">
-<label for="tv_series_groups_raw">TV Series Groups (comma‑sep)</label>
-<input id="tv_series_groups_raw" name="tv_series_groups_raw" type="text" value=""/>
-<div class="setting-help">Comma‑separated patterns for TV series groups</div>
+  <label for="tv_series_groups_select">Select TV Groups</label>
+  <select id="tv_series_groups_select" multiple size="6" style="width: 100%;"></select>
 </div>
-<div class="setting-item">
+
+<!-- 24/7 Group Raw Input -->
+ <div class="setting-item">
 <input name="process_groups_24_7" type="hidden" value="false"/>
-<label><input name="process_groups_24_7" type="checkbox"> Process 24/7 Groups</input></label>
+<label><input name="process_groups_24_7" type="checkbox"> Process 24/7 Series Groups</input></label>
 <div class="setting-help">Enable processing of live 24/7 channels</div>
 </div>
+
+<input id="groups_24_7_raw" name="groups_24_7_raw" type="hidden"/>
+<!-- ✅ 24/7 Group Dropdown -->
 <div class="setting-item">
-<label for="groups_24_7_raw">24/7 Groups (comma‑sep)</label>
-<input id="groups_24_7_raw" name="groups_24_7_raw" type="text" value=""/>
-<div class="setting-help">Comma‑separated patterns for 24/7 groups</div>
+  <label for="process_247_groups_select">Select 24/7 Groups</label>
+  <select id="process_247_groups_select" multiple size="6" style="width: 100%;"></select>
 </div>
+
+
 <div class="setting-item">
 <label for="remove_strings_raw">Remove Strings (comma‑sep)</label>
 <input id="remove_strings_raw" name="remove_strings_raw" type="text" value=""/>

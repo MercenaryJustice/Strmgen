@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from strmgen.core.db import SkippedStream
+from strmgen.core.db import SkippedStream, get_pg_pool
 from strmgen.services.movies import reprocess_movie
 from strmgen.services.tv    import reprocess_tv
 
@@ -15,3 +15,13 @@ async def reprocess_stream(skipped: SkippedStream):
     if not success:
         raise HTTPException(500, f"Failed to reprocess {skipped['name']} ({skipped['tmdb_id']})")
     return {"status": "queued"}
+
+@router.post("/clear", name="skipped.clear")
+async def clear_skipped():
+    pool = await get_pg_pool()
+    async with pool.acquire() as conn:
+        try:
+            await conn.execute("TRUNCATE TABLE skipped_streams RESTART IDENTITY CASCADE;")
+            return {"status": "ok"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))

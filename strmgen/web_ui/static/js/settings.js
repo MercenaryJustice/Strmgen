@@ -171,3 +171,142 @@ document.addEventListener('DOMContentLoaded', () => {
     window.initSettingsPage();
   }
 });
+
+
+async function syncGroupSelectors() {
+  const movieInput = document.getElementById('movies_groups_raw');
+  const tvInput = document.getElementById('tv_series_groups_raw');
+  const process247Input = document.getElementById('groups_24_7_raw');
+  const movieSelect = document.getElementById('movie_groups_select');
+  const tvSelect = document.getElementById('tv_series_groups_select');
+  const process247Select = document.getElementById('process_247_groups_select');
+
+  try {
+    const res = await fetch('/api/v1/streams/stream-groups');
+    if (!res.ok) throw new Error('Failed to fetch stream groups');
+    const groups = await res.json();
+
+    // Clear existing options
+    movieSelect.innerHTML = '';
+    tvSelect.innerHTML = '';
+
+    for (const g of groups) {
+      const opt1 = new Option(g, g);
+      const opt2 = new Option(g, g);
+      const opt3 = new Option(g, g);
+      movieSelect.appendChild(opt1);
+      tvSelect.appendChild(opt2);
+      process247Select.appendChild(opt3);
+    }
+
+    // Initialize Choices.js
+    const movieChoices = new Choices(movieSelect, {
+      removeItemButton: true,
+      searchEnabled: true,
+      placeholder: true,
+      placeholderValue: 'Select movie groups'
+    });
+
+    let lastSelectedMovie = null;
+    let lastSelectedTV = null;   
+    let lastSelected247 = null;   
+
+    // Add theme-aware class manually afterward
+    movieChoices.containerOuter.element.classList.add('theme-aware');
+
+    movieChoices.passedElement.element.addEventListener('change', () => {
+      const selected = movieChoices.getValue(true);
+      lastSelectedMovie = Array.isArray(selected)
+        ? selected[selected.length - 1] || null
+        : selected;
+
+      setTimeout(() => {
+        const container = movieChoices.dropdown.element;
+        const item = Array.from(container.querySelectorAll('.choices__item--selectable'))
+          .find(el => el.innerText.trim() === lastSelectedMovie);
+        if (item) item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }, 50);
+    });
+
+    const tvChoices = new Choices(tvSelect, {
+      removeItemButton: true,
+      searchEnabled: true,
+      placeholder: true,
+      placeholderValue: 'Select TV groups'
+    });
+    tvChoices.containerOuter.element.classList.add('theme-aware');
+
+    tvChoices.passedElement.element.addEventListener('change', () => {
+      const selected = tvChoices.getValue(true);
+      lastSelectedTV = Array.isArray(selected)
+        ? selected[selected.length - 1] || null
+        : selected;
+
+      setTimeout(() => {
+        const container = tvChoices.dropdown.element;
+        const item = Array.from(container.querySelectorAll('.choices__item--selectable'))
+          .find(el => el.innerText.trim() === lastSelectedTV);
+        if (item) item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }, 50);
+    });
+
+    //24/7
+
+    const process247Choices = new Choices(process247Select, {
+      removeItemButton: true,
+      searchEnabled: true,
+      placeholder: true,
+      placeholderValue: 'Select 24/7 groups'
+    });
+    process247Choices.containerOuter.element.classList.add('theme-aware');
+
+    process247Choices.passedElement.element.addEventListener('change', () => {
+      const selected = process247Choices.getValue(true);
+      lastSelected247 = Array.isArray(selected)
+        ? selected[selected.length - 1] || null
+        : selected;
+
+      setTimeout(() => {
+        const container = process247Choices.dropdown.element;
+        const item = Array.from(container.querySelectorAll('.choices__item--selectable'))
+          .find(el => el.innerText.trim() === lastSelected247);
+        if (item) item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }, 50);
+    });    
+
+
+    // Pre-select items from raw input
+    const initChoices = (choicesInstance, input) => {
+      const initial = input.value.split(',').map(s => s.trim()).filter(Boolean);
+      choicesInstance.setChoiceByValue(initial);
+      choicesInstance.passedElement.element.addEventListener('change', () => {
+        const selected = Array.from(choicesInstance.passedElement.element.selectedOptions).map(o => o.value);
+        input.value = selected.join(', ');
+      });
+    };
+
+    initChoices(movieChoices, movieInput);
+    initChoices(tvChoices, tvInput);
+    initChoices(process247Choices, process247Input);
+
+
+  } catch (err) {
+    console.error('Error syncing group selectors:', err);
+  }
+}
+
+// Initialize group selectors after DOM load and settings are loaded
+document.addEventListener('DOMContentLoaded', async () => {
+  if (!document.getElementById('settingsForm')) return;
+
+  window.initSettingsPage();
+  await syncGroupSelectors();
+
+  // Rebind collapsibles AFTER dynamic elements are added
+  document.querySelectorAll('.collapsible-header').forEach(header => {
+    header.addEventListener('click', () => {
+      const group = header.closest('.settings-group');
+      if (group) group.classList.toggle('collapsed');
+    });
+  });
+});

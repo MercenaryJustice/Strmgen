@@ -380,3 +380,28 @@ button {
   padding: 5px;
 }
 
+/* Theme-aware Choices.js fixes */
+.choices.theme-aware .choices__inner,
+.choices.theme-aware .choices__list--dropdown,
+.choices.theme-aware .choices__item {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+.choices.theme-aware .choices__item--selectable {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.choices.theme-aware .choices__item--selectable.is-highlighted,
+.choices.theme-aware .choices__item--choice.is-highlighted {
+  background-color: var(--accent-hover);
+  color: #ffffff; /* force visible text when highlighted */
+}
+
+/* Fix for mouse hover in dropdown (dark + light) */
+.choices.theme-aware .choices__list--dropdown .choices__item--selectable.is-highlighted {
+  background-color: var(--accent-hover);
+  color: var(--text-primary); /* or #fff if needed */
+}

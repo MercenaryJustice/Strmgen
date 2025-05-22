@@ -34,6 +34,7 @@
 <div class="card" style="height:90vh; display:flex; flex-direction:column;">
   <h2><i class="fas fa-ban"></i> Skipped Streams</h2>
   <div style="margin-bottom:15px; display:flex; align-items:center;">
+    <button id="clear-db-btn" class="save-button" style="margin-left: 10px;">Clear DB</button>
     <button id="refresh-btn" class="save-button">Refresh</button>
     <input id="filter-input" type="text" placeholder="Filter streams..." style="margin-left:10px; flex:1;"/>
   </div>
@@ -219,5 +220,22 @@
     document.getElementById('refresh-btn').addEventListener('click', refresh);
     refresh();
   });
+
+  document.getElementById("clear-db-btn").addEventListener("click", async () => {
+    if (confirm("Are you sure you want to clear all skipped entries? This cannot be undone.")) {
+      try {
+        const res = await fetch('{{ request.url_for("skipped.clear") }}', { method: "POST" });
+        if (res.ok) {
+          alert("Skipped DB cleared successfully.");
+          refresh(); // reload data
+        } else {
+          const err = await res.text();
+          alert("Failed to clear DB: " + err);
+        }
+      } catch (err) {
+        alert("Error clearing DB: " + err.message);
+      }
+    }
+  });  
 </script>
 {% endblock %}

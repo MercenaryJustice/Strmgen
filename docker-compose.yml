@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: mitch91175/strmgen:latest
+    image: mercenaryjustice/strmgen:latest
     container_name: strmgen
 
     environment:
